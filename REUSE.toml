@@ -1,0 +1,25 @@
+version=1
+
+# Verzeichnisse, die vom Linting ausgeschlossen werden sollen
+[[annotations]]
+path = [
+    "DerivedData/**",
+    "build/**",
+    "**/*.xcuserdatad/**",
+    "**/*.xcscmblueprint/**",
+    "**/*.xccheckout/**"
+]
+ignore = true
+
+[[annotations]]
+path = "Package.resolved"
+precedence = "closest"
+SPDX-FileCopyrightText = "© 2026 Sebastian Ritter <bastie@users.noreply.github.com>"
+SPDX-License-Identifier = "Apache-2.0"
+
+# ignore hidden directories with pseudo license
+[[annotations]]
+path = ".**/**"
+precedence = "closest"
+SPDX-FileCopyrightText = "© 2026 Sebastian Ritter <bastie@users.noreply.github.com>"
+SPDX-License-Identifier = "Apache-2.0"
