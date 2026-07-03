@@ -12,14 +12,22 @@ extension ben {
   
   func runSelfTest (for algorithm: Algorithm) async throws -> Result<Void, Error>{
     var passed = true
-    passed = SuffixArrayTest.selfTest() && passed
-    passed = NibbleBWT.selfTest() && passed
 
     switch algorithm {
     case .BEN_BWT:
+      passed = SuffixArrayTest.selfTest() && passed
+      passed = NibbleBWT.selfTest() && passed
       passed = BEN_BWT.selfTest() && passed
     case .BEN_MEC:
+      passed = SuffixArrayTest.selfTest() && passed
+      passed = NibbleBWT.selfTest() && passed
       passed = BEN_MEC.selfTest() && passed
+    case .BEN_CM:
+      passed = BEN_CM.selfTest() && passed   // kein BWT in der Pipeline
+    case .BEN_NBCM:
+      passed = SuffixArrayTest.selfTest() && passed
+      passed = NibbleBWT.selfTest() && passed
+      passed = BEN_NBCM.selfTest() && passed
     }
 
     guard passed else {

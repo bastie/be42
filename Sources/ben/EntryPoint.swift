@@ -18,7 +18,7 @@ struct ben : AsyncParsableCommand {
       Copyright © 2026 Sebastian Ritter
       License Apache 2.0 
       """,
-      version: "0.43.0",
+      version: "0.47.0",
       helpNames: .long
     )
   }
@@ -33,7 +33,7 @@ struct ben : AsyncParsableCommand {
   var verbose = false
   
   @Option(name: [.customLong("algorithm")], help: "Algorithm")
-  var algorithm : String = Algorithm.BEN_MEC.rawValue
+  var algorithm : String = Algorithm.BEN_NBCM.rawValue
   
   @Argument(help: "input file")
   var file: String?

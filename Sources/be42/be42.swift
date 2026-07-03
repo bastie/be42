@@ -21,11 +21,13 @@ public struct be42 {
     0x00 : "unset algorithm",
     0x01 : Algorithm.BEN_BWT.rawValue,
     0x02 : Algorithm.BEN_MEC.rawValue,
+    0x03 : Algorithm.BEN_CM.rawValue,
+    0x04 : Algorithm.BEN_NBCM.rawValue,
     0xFF : "reserved",
   ]
   public static let MAGIC : [UInt8] = [0xBE, 0x42]
   public var version : UInt8 = 0x01
-  public var algorithm : Algorithm = .BEN_MEC
+  public var algorithm : Algorithm = .BEN_NBCM
 
 
   public var headerCount: Int {
@@ -37,6 +39,8 @@ public struct be42 {
     switch algorithm {
     case .BEN_BWT: return 0x01
     case .BEN_MEC: return 0x02
+    case .BEN_CM:  return 0x03
+    case .BEN_NBCM: return 0x04
     }
   }
 
@@ -62,6 +66,8 @@ public struct be42 {
     switch data[3] {
     case 0x01: return .BEN_BWT
     case 0x02: return .BEN_MEC
+    case 0x03: return .BEN_CM
+    case 0x04: return .BEN_NBCM
     default:
       throw be42FormatError.unknownAlgorithm
     }

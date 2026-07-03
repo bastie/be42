@@ -90,6 +90,108 @@ private let edgeCases: [Data] = [
   }
 }
 
+// MARK: - BEN_CM
+
+@Suite struct BEN_CMTests {
+
+  @Test func roundtripEdgeCases() throws {
+    for orig in edgeCases {
+      let compressed = try BEN_CM.compress(orig)
+      let restored   = try BEN_CM.decompress(compressed)
+      #expect(restored == orig, "Roundtrip-Mismatch bei \(orig.count) Bytes")
+    }
+  }
+
+  @Test func roundtripSingleByteSweep() throws {
+    for byte in 0...255 as ClosedRange<UInt8> {
+      let orig = Data([byte])
+      #expect(try BEN_CM.decompress(BEN_CM.compress(orig)) == orig,
+              "Mismatch bei Byte 0x\(String(byte, radix: 16))")
+    }
+  }
+
+  @Test func roundtripRandom() throws {
+    var rng = SeededRandom(state: 0xC0FF_EE00_BE42_0043)
+    for round in 0..<10 {
+      let orig = rng.data(count: 2048)
+      #expect(try BEN_CM.decompress(BEN_CM.compress(orig)) == orig,
+              "Mismatch in Zufallsrunde \(round)")
+    }
+  }
+
+  @Test func compressesStructuredData() throws {
+    let text = Data(String(repeating: "Hello Nibble World! Wir komprimieren anders. ",
+                           count: 300).utf8)
+    let compressed = try BEN_CM.compress(text)
+    #expect(compressed.count * 4 < text.count,
+            "Strukturierter Text muss unter 25 % fallen (\(compressed.count)/\(text.count))")
+  }
+
+  @Test func randomDataExpandsOnlyMarginally() throws {
+    var rng = SeededRandom(state: 0x1337_CAFE_DEAD_BEEF)
+    let orig = rng.data(count: 20_000)
+    let compressed = try BEN_CM.compress(orig)
+    #expect(compressed.count < orig.count + orig.count / 16,
+            "Zufallsdaten dürfen maximal ~6 % wachsen")
+  }
+
+  @Test func rejectsCorruptHeader() {
+    #expect(throws: (any Error).self) {
+      _ = try BEN_CM.decompress(Data([0x00, 0x01]))   // zu kurz
+    }
+  }
+}
+
+// MARK: - BEN_NBCM
+
+@Suite struct BEN_NBCMTests {
+
+  @Test func roundtripEdgeCases() throws {
+    for orig in edgeCases {
+      let compressed = try BEN_NBCM.compress(orig)
+      let restored   = try BEN_NBCM.decompress(compressed)
+      #expect(restored == orig, "Roundtrip-Mismatch bei \(orig.count) Bytes")
+    }
+  }
+
+  @Test func roundtripSingleByteSweep() throws {
+    for byte in 0...255 as ClosedRange<UInt8> {
+      let orig = Data([byte])
+      #expect(try BEN_NBCM.decompress(BEN_NBCM.compress(orig)) == orig,
+              "Mismatch bei Byte 0x\(String(byte, radix: 16))")
+    }
+  }
+
+  @Test func roundtripRandom() throws {
+    var rng = SeededRandom(state: 0xBE42_0004_DEAD_BEEF)
+    for round in 0..<15 {
+      let orig = rng.data(count: 2048)
+      #expect(try BEN_NBCM.decompress(BEN_NBCM.compress(orig)) == orig,
+              "Mismatch in Zufallsrunde \(round)")
+    }
+  }
+
+  @Test func compressesStructuredData() throws {
+    let text = Data(String(repeating: "Hello Nibble World! Wir komprimieren anders. ",
+                           count: 300).utf8)
+    let compressed = try BEN_NBCM.compress(text)
+    #expect(compressed.count * 2 < text.count,
+            "Strukturierter Text muss unter 50 % fallen (\(compressed.count)/\(text.count))")
+  }
+
+  @Test func rejectsCorruptHeader() {
+    #expect(throws: (any Error).self) {
+      _ = try BEN_NBCM.decompress(Data([0x00, 0x01]))              // zu kurz
+    }
+    #expect(throws: (any Error).self) {
+      _ = try BEN_NBCM.decompress(Data([0, 0, 0, 3,  0, 0, 0, 0])) // ungerade
+    }
+    #expect(throws: (any Error).self) {
+      _ = try BEN_NBCM.decompress(Data([0, 0, 0, 4,  0, 0, 0, 9])) // Index ≥ Anzahl
+    }
+  }
+}
+
 // MARK: - BEN_BWT (Bestandsalgorithmus)
 
 @Suite struct BEN_BWTTests {
@@ -146,11 +248,31 @@ private let edgeCases: [Data] = [
     }
   }
 
+  @Test func headerRoundtripBEN_CM() throws {
+    var format = be42()
+    format.algorithm = .BEN_CM
+    var data = format.getHeader()
+    data.append(contentsOf: [0x00])
+    #expect(try format.checkHeader(in: data) == .BEN_CM)
+  }
+
+  @Test func headerRoundtripBEN_NBCM() throws {
+    var format = be42()
+    format.algorithm = .BEN_NBCM
+    var data = format.getHeader()
+    data.append(contentsOf: [0x00])
+    #expect(try format.checkHeader(in: data) == .BEN_NBCM)
+  }
+
   @Test func algorithmRawValues() {
     #expect(Algorithm.BEN_BWT.rawValue == "nbbmr")
     #expect(Algorithm.BEN_MEC.rawValue == "nbmec")
+    #expect(Algorithm.BEN_CM.rawValue == "ncmm")
+    #expect(Algorithm.BEN_NBCM.rawValue == "nbcm")
     #expect(Algorithm(rawValue: "nbmec") == .BEN_MEC)
     #expect(Algorithm(rawValue: "nbbmr") == .BEN_BWT)
+    #expect(Algorithm(rawValue: "ncmm") == .BEN_CM)
+    #expect(Algorithm(rawValue: "nbcm") == .BEN_NBCM)
     #expect(Algorithm(rawValue: "gibtsnicht") == nil)
   }
 }
