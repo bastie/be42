@@ -18,7 +18,7 @@ struct ben : AsyncParsableCommand {
       Copyright © 2026 Sebastian Ritter
       License Apache 2.0 
       """,
-      version: "0.48.0",
+      version: "0.49.0",
       helpNames: .long
     )
   }
@@ -38,6 +38,10 @@ struct ben : AsyncParsableCommand {
   @Option(name: [.customLong("blocksize")],
           help: "Block size in MiB for nbcmb (bigger = better ratio, smaller = less RAM)")
   var blocksize : Int = 64
+
+  @Option(name: [.customShort("T"), .customLong("threads")],
+          help: "Parallel blocks for nbcmb, 0 = number of CPU cores (mind RAM: ~36 bytes per input byte per parallel block)")
+  var threads : Int = 0
   
   @Argument(help: "input file")
   var file: String?
@@ -85,6 +89,10 @@ struct ben : AsyncParsableCommand {
 
     guard (1...2048).contains(blocksize) else {
       throw ValidationError("Block size must be 1...2048 MiB: \(blocksize)")
+    }
+
+    guard (0...256).contains(threads) else {
+      throw ValidationError("Threads must be 0...256: \(threads)")
     }
     
     if let file {

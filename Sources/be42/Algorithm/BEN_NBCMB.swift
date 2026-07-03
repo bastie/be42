@@ -89,6 +89,147 @@ public enum BEN_NBCMB {
   }
 
   // ───────────────────────────────────────────────────────────────────────────
+  // MARK: Parallel komprimieren (bitidentisch zur sequenziellen Variante)
+  // ───────────────────────────────────────────────────────────────────────────
+
+  /// Wie `compress`, aber Blöcke werden parallel verarbeitet.
+  /// `threads` = maximale Gleichzeitigkeit, 0 = Anzahl CPU-Kerne.
+  /// Achtung RAM: pro gleichzeitigem Block fällt der Suffix-Array-Bau an
+  /// (~36 Bytes je Eingabe-Byte) — kleinere Blöcke erlauben mehr Threads.
+  public static func compressParallel(_ input: Data,
+                                      blockSize: Int = defaultBlockSize,
+                                      threads: Int = 0) async throws -> Data {
+    guard blockSize > 0 else {
+      throw BEN_NBCMBError.invalidData("Blockgröße muss > 0 sein")
+    }
+    guard UInt64(input.count) <= UInt64(UInt32.max) else {
+      throw BEN_NBCMBError.fileTooLarge
+    }
+    let blockCount = input.isEmpty ? 0 : (input.count + blockSize - 1) / blockSize
+    let width = max(1, threads == 0 ? ProcessInfo.processInfo.activeProcessorCount
+                                    : threads)
+
+    // Blöcke schneiden (Data-Slices sind billig, Kopie erst im Task)
+    var blocks = [Data]()
+    blocks.reserveCapacity(blockCount)
+    var offset = input.startIndex
+    while offset < input.endIndex {
+      let end = input.index(offset, offsetBy: blockSize,
+                            limitedBy: input.endIndex) ?? input.endIndex
+      blocks.append(Data(input[offset..<end]))
+      offset = end
+    }
+
+    var results = [Data?](repeating: nil, count: blockCount)
+    try await withThrowingTaskGroup(of: (Int, Data).self) { group in
+      var next = 0
+      // Fenster füllen
+      while next < min(width, blockCount) {
+        let idx = next
+        let block = blocks[idx]
+        group.addTask { (idx, try BEN_NBCM.compressBlock(block)) }
+        next += 1
+      }
+      // je fertigem Block einen nachschieben
+      while let (idx, data) = try await group.next() {
+        results[idx] = data
+        if next < blockCount {
+          let i = next
+          let block = blocks[i]
+          group.addTask { (i, try BEN_NBCM.compressBlock(block)) }
+          next += 1
+        }
+      }
+    }
+
+    // Zusammensetzen — identisches Format wie `compress`
+    var out = Data()
+    func appendBE32(_ v: UInt32) {
+      out.append(UInt8((v >> 24) & 0xFF))
+      out.append(UInt8((v >> 16) & 0xFF))
+      out.append(UInt8((v >>  8) & 0xFF))
+      out.append(UInt8( v        & 0xFF))
+    }
+    appendBE32(UInt32(blockSize))
+    appendBE32(UInt32(blockCount))
+    for r in results {
+      guard let r else {
+        throw BEN_NBCMBError.invalidData("Interner Fehler: Block fehlt")
+      }
+      appendBE32(UInt32(r.count))
+      out.append(r)
+    }
+    return out
+  }
+
+  /// Wie `decompress`, aber Blöcke werden parallel dekodiert —
+  /// möglich durch die Längenprefixe im Format.
+  public static func decompressParallel(_ compressed: Data,
+                                        threads: Int = 0) async throws -> Data {
+    let raw = Array(compressed)
+    guard raw.count >= 8 else {
+      throw BEN_NBCMBError.invalidData("Header zu kurz (\(raw.count) < 8 Bytes)")
+    }
+    func readBE32(_ off: Int) -> UInt32 {
+      UInt32(raw[off]) << 24 | UInt32(raw[off + 1]) << 16
+        | UInt32(raw[off + 2]) << 8 | UInt32(raw[off + 3])
+    }
+    let blockSize  = Int(readBE32(0))
+    let blockCount = Int(readBE32(4))
+    guard blockSize > 0 || blockCount == 0 else {
+      throw BEN_NBCMBError.invalidData("Ungültige Blockgröße \(blockSize)")
+    }
+    let width = max(1, threads == 0 ? ProcessInfo.processInfo.activeProcessorCount
+                                    : threads)
+
+    // Erst alle Block-Bereiche über die Längenprefixe lokalisieren
+    var ranges = [(Int, Int)]()
+    ranges.reserveCapacity(blockCount)
+    var off = 8
+    for blockIndex in 0..<blockCount {
+      guard off + 4 <= raw.count else {
+        throw BEN_NBCMBError.invalidData("Block \(blockIndex): Längenprefix fehlt")
+      }
+      let compLen = Int(readBE32(off))
+      off += 4
+      guard off + compLen <= raw.count else {
+        throw BEN_NBCMBError.invalidData(
+          "Block \(blockIndex): \(compLen) Bytes erwartet, nur \(raw.count - off) vorhanden")
+      }
+      ranges.append((off, compLen))
+      off += compLen
+    }
+
+    var results = [Data?](repeating: nil, count: blockCount)
+    try await withThrowingTaskGroup(of: (Int, Data).self) { group in
+      var next = 0
+      func submit(_ idx: Int) {
+        let (start, len) = ranges[idx]
+        let blockData = Data(raw[start..<start + len])
+        group.addTask { (idx, try BEN_NBCM.decompressBlock(blockData)) }
+      }
+      while next < min(width, blockCount) { submit(next); next += 1 }
+      while let (idx, data) = try await group.next() {
+        guard data.count <= blockSize else {
+          throw BEN_NBCMBError.invalidData(
+            "Block \(idx): dekodierte Größe \(data.count) > Blockgröße \(blockSize)")
+        }
+        results[idx] = data
+        if next < blockCount { submit(next); next += 1 }
+      }
+    }
+
+    var out = Data()
+    for r in results {
+      guard let r else {
+        throw BEN_NBCMBError.invalidData("Interner Fehler: Block fehlt")
+      }
+      out.append(r)
+    }
+    return out
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────
   // MARK: Dekomprimieren
   // ───────────────────────────────────────────────────────────────────────────
 

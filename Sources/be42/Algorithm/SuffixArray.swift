@@ -111,76 +111,68 @@ public struct SuffixArrayPrefixDoubling: SuffixArrayBuilder, Sendable {
     let n = text.count
     if n == 0 { return [] }
     if n == 1 { return [0] }
-    
+    // Speed: alle Arbeitsarrays in Int32 — Nibble-Ströme sind < 2^31 Elemente,
+    // halbierte Elementgröße = halbe Speicherbandbreite im dominanten
+    // countingSort. Semantik identisch zur Int-Fassung (Konsistenztests
+    // gegen SuffixArrayNaive sichern das).
+    precondition(n <= Int(Int32.max), "SuffixArrayPrefixDoubling: n > Int32.max")
+
     // ── Schritt 1: Initiale Ränge aus Zeichenwerten ──────────────────────────
-    //
-    // sa: vorläufiges Suffix-Array (nach aktuellem Schlüssel sortiert)
-    // rank[i]: Rang von Position i (normalisiert auf [0, numDistinct-1])
-    // numDistinct: Anzahl verschiedener Rang-Werte
-    
-    var sa = countingSort(Array(0 ..< n),
-                          key: text,       // text[i] direkt als Schlüssel
-                          K: alphabetSize)
-    
-    var rank = [Int](repeating: 0, count: n)
-    rank[sa[0]] = 0
+    let text32 = text.map { Int32($0) }
+    let identity = [Int32]((0 ..< Int32(n)))
+
+    var sa = countingSort(identity, key: text32, K: alphabetSize)
+
+    var rank = [Int32](repeating: 0, count: n)
+    rank[Int(sa[0])] = 0
     var numDistinct = 1
     for i in 1 ..< n {
-      if text[sa[i]] != text[sa[i-1]] { numDistinct += 1 }
-      rank[sa[i]] = numDistinct - 1
+      if text32[Int(sa[i])] != text32[Int(sa[i-1])] { numDistinct += 1 }
+      rank[Int(sa[i])] = Int32(numDistinct - 1)
     }
-    
-    if numDistinct == n { return sa }  // alle Zeichen verschieden: sofort fertig
-    
+
+    if numDistinct == n { return sa.map { Int($0) } }
+
     // ── Schritt 2: Verdopplung ───────────────────────────────────────────────
-    //
-    // Invariante vor jedem Schritt:
-    //   sa ist nach rank[] sortiert (Schlüssellänge = gap).
-    //   rank[i] ∈ [0, numDistinct-1].
-    //
-    // Pro Schritt:
-    //   a) Zweites Schlüsselarray aus rank[(i+gap)%n] materialisieren.
-    //      WICHTIG: Materialisierung VOR dem Sort — kein Closure-Capture
-    //      von rank, keine Swift-6-Exclusivity-Konflikte.
-    //   b) Zweistufiger stabiler Sort: erst nach 2. Schlüssel, dann nach 1.
-    //   c) Ränge neu berechnen und normalisieren.
-    
+    // Invariante und Ablauf wie zuvor (siehe Kommentar oben in der Datei);
+    // stabile Counting-Sorts sichern den Tiebreak nach Startindex.
     var gap = 1
     while gap < n {
       let r = rank  // Snapshot: unveränderliche Kopie für Schlüsselberechnung
-      
-      // Zweites Schlüsselarray: rank[(i+gap)%n] für alle i ∈ 0..<n
-      // Eigenständiges Array → kein Conflict mit r, kein inout-Problem.
-      let key2 = (0 ..< n).map { r[($0 + gap) % n] }
-      
+
+      // Zweites Schlüsselarray: rank[(i+gap)%n] — ohne Modulo im Hot Loop
+      var key2 = [Int32](repeating: 0, count: n)
+      key2.withUnsafeMutableBufferPointer { k2 in
+        r.withUnsafeBufferPointer { rp in
+          let split = n - gap
+          for i in 0 ..< split { k2[i] = rp[i + gap] }
+          for i in split ..< n { k2[i] = rp[i + gap - n] }
+        }
+      }
+
       // Pass 1: stabil nach zweitem Schlüssel sortieren
-      let sa2 = countingSort(Array(0 ..< n), key: key2, K: numDistinct)
-      
+      let sa2 = countingSort(identity, key: key2, K: numDistinct)
+
       // Pass 2: stabil nach erstem Schlüssel sortieren (Ergebnis ist in sa)
       sa = countingSort(sa2, key: r, K: numDistinct)
-      
+
       // Ränge neu berechnen
-      var newRank = [Int](repeating: 0, count: n)
-      newRank[sa[0]] = 0
+      var newRank = [Int32](repeating: 0, count: n)
+      newRank[Int(sa[0])] = 0
       numDistinct = 1
       for i in 1 ..< n {
-        let a = sa[i-1], b = sa[i]
-        // Zwei Positionen haben denselben neuen Rang wenn beide Schlüssel gleich sind
+        let a = Int(sa[i-1]), b = Int(sa[i])
         let different = r[a] != r[b] || key2[a] != key2[b]
         if different { numDistinct += 1 }
-        newRank[b] = numDistinct - 1
+        newRank[b] = Int32(numDistinct - 1)
       }
       rank = newRank
-      
-      if numDistinct == n { break }  // alle Ränge eindeutig: fertig
+
+      if numDistinct == n { break }
       gap *= 2
     }
-    
-    // Hinweis: Wenn gap >= n und numDistinct < n, bedeutet das echter Periodizität.
-    // Die stabilen Sorts haben dann automatisch nach Startindex tiegebrochen —
-    // identisch zum naiven Builder (return a < b).
-    
-    return sa
+
+    return sa.map { Int($0) }
   }
   
   // ───────────────────────────────────────────────────────────────────────────
@@ -204,29 +196,39 @@ public struct SuffixArrayPrefixDoubling: SuffixArrayBuilder, Sendable {
   ///   - key: Schlüssel-Array. `key[arr[i]]` = Schlüssel für `arr[i]`.
   ///          Muss Zugriff auf alle Werte in `arr` erlauben.
   ///   - K:   Anzahl möglicher Schlüsselwerte (exklusives Maximum).
-  private func countingSort(_ arr: [Int], key: [Int], K: Int) -> [Int] {
+  private func countingSort(_ arr: [Int32], key: [Int32], K: Int) -> [Int32] {
     guard !arr.isEmpty else { return [] }
-    
-    // Phase 1: Häufigkeiten
-    var count = [Int](repeating: 0, count: K)
-    for x in arr { count[key[x]] += 1 }
-    
-    // Phase 2: Prefix-Summe → Startpositionen (exklusiv)
-    var start = [Int](repeating: 0, count: K)
-    var sum = 0
-    for i in 0 ..< K {
-      start[i] = sum
-      sum += count[i]
+    let n = arr.count
+
+    var out = [Int32](repeating: 0, count: n)
+    var start = [Int32](repeating: 0, count: K)
+
+    // Alle drei Phasen über Buffer-Pointer: der Sort ist bandbreitenlimitiert,
+    // Bounds-Checks kosten hier zweistellig Prozent.
+    arr.withUnsafeBufferPointer { a in
+      key.withUnsafeBufferPointer { k in
+        start.withUnsafeMutableBufferPointer { s in
+          out.withUnsafeMutableBufferPointer { o in
+            // Phase 1: Häufigkeiten (in start akkumuliert)
+            for i in 0 ..< n { s[Int(k[Int(a[i])])] &+= 1 }
+            // Phase 2: Prefix-Summe → Startpositionen (exklusiv)
+            var sum: Int32 = 0
+            for i in 0 ..< K {
+              let c = s[i]
+              s[i] = sum
+              sum &+= c
+            }
+            // Phase 3: Scatter (in Reihenfolge von arr → stabil)
+            for i in 0 ..< n {
+              let x = a[i]
+              let kk = Int(k[Int(x)])
+              o[Int(s[kk])] = x
+              s[kk] &+= 1
+            }
+          }
+        }
+      }
     }
-    
-    // Phase 3: Scatter (in Reihenfolge von arr → stabil)
-    var out = [Int](repeating: 0, count: arr.count)
-    for x in arr {
-      let k = key[x]
-      out[start[k]] = x
-      start[k] += 1
-    }
-    
     return out
   }
 }

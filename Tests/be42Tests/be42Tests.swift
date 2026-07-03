@@ -239,6 +239,22 @@ private let edgeCases: [Data] = [
       _ = try BEN_NBCMB.decompress(Data([0, 0, 4, 0,  0, 0, 0, 1]))
     }
   }
+
+  @Test func parallelMatchesSequentialBitExactly() async throws {
+    var rng = SeededRandom(state: 0xBE42_5EED_0000_0001)
+    // gemischte Inhalte: Text + Zufall, mehrere Blöcke, mehrere Threadzahlen
+    var orig = Data(String(repeating: "block parallel bijektiv ", count: 500).utf8)
+    orig.append(rng.data(count: 20_000))
+    let sequential = try BEN_NBCMB.compress(orig, blockSize: 4096)
+    for threads in [1, 2, 4, 0] {
+      let parallel = try await BEN_NBCMB.compressParallel(orig, blockSize: 4096,
+                                                          threads: threads)
+      #expect(parallel == sequential,
+              "Parallel (T=\(threads)) muss bitidentisch zur sequenziellen Ausgabe sein")
+      let restored = try await BEN_NBCMB.decompressParallel(parallel, threads: threads)
+      #expect(restored == orig)
+    }
+  }
 }
 
 // MARK: - BEN_BWT (Bestandsalgorithmus)

@@ -101,6 +101,13 @@ Apache License Version 2.0
 
 # Version
 
+**0.49.0** (speed branch)
+
+First speed package, output stays bit identical:
+
+1. suffix array construction (the dominant cost) now works on Int32 arrays with buffer pointers in the counting sort — half the memory bandwidth, no bounds checks in the hot loop
+2. *nbcmb* blocks are compressed AND decompressed in parallel (`--threads`/`-T`, 0 = number of CPU cores); the length-prefixed block format makes both sides trivially parallel. Mind RAM: suffix array construction needs ~36 bytes per input byte per parallel block — smaller `--blocksize` allows more parallelism
+
 **0.48.0**
 
 New default algorithm *nbcmb* (0x05): *nbcm* in block mode. The file is split into independent, length-prefixed blocks, each with its own BWT, model and range coder stream. This makes enwik9 (1 GB) possible at all (a whole-file suffix array would need ~50 GB RAM), keeps suffix array working sets cache friendly (enwik8: 2:16 instead of 2:51) and prepares parallel compression AND decompression — every block is independently decodable. Measured block cost on enwik8: 16 MiB blocks lose ~2 percentage points ratio against a single block — the global BWT context bundling matters. Therefore the block size is selectable via `--blocksize` (MiB, default 64). *nbcm* (0x04) streams stay decompressable.
