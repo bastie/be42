@@ -28,6 +28,11 @@ extension ben {
       passed = SuffixArrayTest.selfTest() && passed
       passed = NibbleBWT.selfTest() && passed
       passed = BEN_NBCM.selfTest() && passed
+    case .BEN_NBCMB:
+      passed = SuffixArrayTest.selfTest() && passed
+      passed = NibbleBWT.selfTest() && passed
+      passed = BEN_NBCM.selfTest() && passed
+      passed = BEN_NBCMB.selfTest() && passed
     }
 
     guard passed else {

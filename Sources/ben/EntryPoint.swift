@@ -18,7 +18,7 @@ struct ben : AsyncParsableCommand {
       Copyright © 2026 Sebastian Ritter
       License Apache 2.0 
       """,
-      version: "0.47.0",
+      version: "0.48.0",
       helpNames: .long
     )
   }
@@ -33,7 +33,11 @@ struct ben : AsyncParsableCommand {
   var verbose = false
   
   @Option(name: [.customLong("algorithm")], help: "Algorithm")
-  var algorithm : String = Algorithm.BEN_NBCM.rawValue
+  var algorithm : String = Algorithm.BEN_NBCMB.rawValue
+
+  @Option(name: [.customLong("blocksize")],
+          help: "Block size in MiB for nbcmb (bigger = better ratio, smaller = less RAM)")
+  var blocksize : Int = 64
   
   @Argument(help: "input file")
   var file: String?
@@ -77,6 +81,10 @@ struct ben : AsyncParsableCommand {
     let compressionAlgorithm : Algorithm? = Algorithm(rawValue: algorithm)
     guard compressionAlgorithm != nil else {
       throw ValidationError("Unknown algorithm: \(algorithm)")
+    }
+
+    guard (1...2048).contains(blocksize) else {
+      throw ValidationError("Block size must be 1...2048 MiB: \(blocksize)")
     }
     
     if let file {

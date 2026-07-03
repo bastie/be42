@@ -491,6 +491,20 @@ public enum BEN_NBCM {
   }
 
   // ───────────────────────────────────────────────────────────────────────────
+  // MARK: Block-Zugriff für BEN_NBCMB
+  // ───────────────────────────────────────────────────────────────────────────
+
+  /// Komprimiert einen einzelnen Block (identisches Payload wie compress).
+  static func compressBlock(_ input: Data) throws -> Data {
+    return try compress(input)
+  }
+
+  /// Dekomprimiert einen einzelnen Block.
+  static func decompressBlock(_ compressed: Data) throws -> Data {
+    return try decompress(compressed)
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────
   // MARK: Self-Test
   // ───────────────────────────────────────────────────────────────────────────
 

@@ -192,6 +192,55 @@ private let edgeCases: [Data] = [
   }
 }
 
+// MARK: - BEN_NBCMB (Block-Modus)
+
+@Suite struct BEN_NBCMBTests {
+
+  @Test func roundtripEdgeCases() throws {
+    for orig in edgeCases {
+      let compressed = try BEN_NBCMB.compress(orig, blockSize: 1024)
+      let restored   = try BEN_NBCMB.decompress(compressed)
+      #expect(restored == orig, "Roundtrip-Mismatch bei \(orig.count) Bytes")
+    }
+  }
+
+  @Test func roundtripAtBlockBoundaries() throws {
+    // Größen exakt an und um Blockgrenzen
+    for size in [1023, 1024, 1025, 2047, 2048, 2049, 4096] {
+      let orig = Data((0..<size).map { UInt8($0 % 251) })
+      #expect(try BEN_NBCMB.decompress(BEN_NBCMB.compress(orig, blockSize: 1024)) == orig,
+              "Mismatch bei Größe \(size)")
+    }
+  }
+
+  @Test func roundtripRandomMultiBlock() throws {
+    var rng = SeededRandom(state: 0xBE42_0005_0000_0001)
+    for round in 0..<10 {
+      let orig = rng.data(count: 8192)
+      #expect(try BEN_NBCMB.decompress(BEN_NBCMB.compress(orig, blockSize: 1000)) == orig,
+              "Mismatch in Zufallsrunde \(round)")
+    }
+  }
+
+  @Test func singleBlockMatchesNBCMRatio() throws {
+    // Ein Block ⇒ Payload identisch zu BEN_NBCM plus 12 Byte Block-Header
+    let text = Data(String(repeating: "the quick brown fox ", count: 300).utf8)
+    let single = try BEN_NBCM.compress(text)
+    let blocked = try BEN_NBCMB.compress(text)   // Default-Blockgröße > Textgröße
+    #expect(blocked.count == single.count + 12)
+  }
+
+  @Test func rejectsCorruptHeader() {
+    #expect(throws: (any Error).self) {
+      _ = try BEN_NBCMB.decompress(Data([0x00, 0x01]))                    // zu kurz
+    }
+    #expect(throws: (any Error).self) {
+      // blockCount 1, aber kein Block vorhanden
+      _ = try BEN_NBCMB.decompress(Data([0, 0, 4, 0,  0, 0, 0, 1]))
+    }
+  }
+}
+
 // MARK: - BEN_BWT (Bestandsalgorithmus)
 
 @Suite struct BEN_BWTTests {
@@ -264,15 +313,25 @@ private let edgeCases: [Data] = [
     #expect(try format.checkHeader(in: data) == .BEN_NBCM)
   }
 
+  @Test func headerRoundtripBEN_NBCMB() throws {
+    var format = be42()
+    format.algorithm = .BEN_NBCMB
+    var data = format.getHeader()
+    data.append(contentsOf: [0x00])
+    #expect(try format.checkHeader(in: data) == .BEN_NBCMB)
+  }
+
   @Test func algorithmRawValues() {
     #expect(Algorithm.BEN_BWT.rawValue == "nbbmr")
     #expect(Algorithm.BEN_MEC.rawValue == "nbmec")
     #expect(Algorithm.BEN_CM.rawValue == "ncmm")
     #expect(Algorithm.BEN_NBCM.rawValue == "nbcm")
+    #expect(Algorithm.BEN_NBCMB.rawValue == "nbcmb")
     #expect(Algorithm(rawValue: "nbmec") == .BEN_MEC)
     #expect(Algorithm(rawValue: "nbbmr") == .BEN_BWT)
     #expect(Algorithm(rawValue: "ncmm") == .BEN_CM)
     #expect(Algorithm(rawValue: "nbcm") == .BEN_NBCM)
+    #expect(Algorithm(rawValue: "nbcmb") == .BEN_NBCMB)
     #expect(Algorithm(rawValue: "gibtsnicht") == nil)
   }
 }

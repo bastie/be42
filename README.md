@@ -58,6 +58,7 @@ Every nibble is coded as 4 binary tree decisions. Seven predictions are combined
 | ben        |    0.42 |           |    32.280.526 | 32.28 |  2:58.30 |          181.046 | non optimized code |
 | ben        |    0.43 |           |    22.805.378 | 22.81 |  2:44.67 |          607.275 | nbmec              |
 | ben        |    0.47 |           |    22.592.372 | 22.59 |  2:51.58 |          582.819 | nbcm, 2nd place    |
+| ben        |    0.48 | 16MiB blk |    24.661.973 | 24.66 |  2:16.67 |          731.690 | nbcmb, block cost  |
 | ben+xz     |         | xz -9ekf  |    31.300.064 | 31.30 |  3:06.06 |          168.225 | ben 0.42           |
 | ben+xz     |         | xz -9ekf  |    22.769.404 | 22.77 |  3:11.54 |                  | ben 0.43           |
 | bzip2      |   1.0.8 | -9zkf     |    29.008.758 | 29.01 |  0:04.75 |        6.107.106 |                    |
@@ -99,6 +100,10 @@ CLI tool *ben* needed *swift-argument-parser* and *be42*.
 Apache License Version 2.0
 
 # Version
+
+**0.48.0**
+
+New default algorithm *nbcmb* (0x05): *nbcm* in block mode. The file is split into independent, length-prefixed blocks, each with its own BWT, model and range coder stream. This makes enwik9 (1 GB) possible at all (a whole-file suffix array would need ~50 GB RAM), keeps suffix array working sets cache friendly (enwik8: 2:16 instead of 2:51) and prepares parallel compression AND decompression — every block is independently decodable. Measured block cost on enwik8: 16 MiB blocks lose ~2 percentage points ratio against a single block — the global BWT context bundling matters. Therefore the block size is selectable via `--blocksize` (MiB, default 64). *nbcm* (0x04) streams stay decompressable.
 
 **0.47.0**
 

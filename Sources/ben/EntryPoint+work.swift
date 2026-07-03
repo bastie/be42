@@ -19,6 +19,8 @@ extension ben {
       case .BEN_MEC: rawData = try BEN_MEC.compress(input)
       case .BEN_CM:  rawData = try BEN_CM.compress(input)
       case .BEN_NBCM: rawData = try BEN_NBCM.compress(input)
+      case .BEN_NBCMB: rawData = try BEN_NBCMB.compress(input,
+                                                        blockSize: blocksize * 1024 * 1024)
       }
       let newFileName = "\(file!).ben"
       let output = URL(fileURLWithPath: newFileName)
@@ -48,6 +50,7 @@ extension ben {
       case .BEN_MEC: decompressed = try BEN_MEC.decompress(input)
       case .BEN_CM:  decompressed = try BEN_CM.decompress(input)
       case .BEN_NBCM: decompressed = try BEN_NBCM.decompress(input)
+      case .BEN_NBCMB: decompressed = try BEN_NBCMB.decompress(input)
       }
       try decompressed.write(to: output)
     }
