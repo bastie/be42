@@ -8,26 +8,31 @@ public enum Algorithm : RawRepresentable, CustomStringConvertible, CustomDebugSt
   }
   
   static let _BEN_BWT = "nibble.bwt.birthday.markov.rans-pass2"
+  static let _BEN_MEC = "nibble.bwt.markov.exclusion.cabac"
   static let _all = [
-    _BEN_BWT
+    _BEN_BWT,
+    _BEN_MEC
   ]
-  
+
   case BEN_BWT
-  
+  case BEN_MEC
+
   public var description: String {
     return rawValue
   }
   public var rawValue: String {
     switch self {
     case .BEN_BWT: return Algorithm.short(of: Algorithm._BEN_BWT)
+    case .BEN_MEC: return Algorithm.short(of: Algorithm._BEN_MEC)
     }
   }
-  
+
   public typealias RawValue = String
-  
+
   public init?(rawValue: String) {
     switch rawValue {
     case Algorithm.short(of: Algorithm._BEN_BWT) : self = .BEN_BWT
+    case Algorithm.short(of: Algorithm._BEN_MEC) : self = .BEN_MEC
     default: return nil
     }
   }

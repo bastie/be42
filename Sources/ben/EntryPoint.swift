@@ -18,7 +18,7 @@ struct ben : AsyncParsableCommand {
       Copyright © 2026 Sebastian Ritter
       License Apache 2.0 
       """,
-      version: "0.42.0",
+      version: "0.43.0",
       helpNames: .long
     )
   }
@@ -26,14 +26,14 @@ struct ben : AsyncParsableCommand {
   @Flag(name: [.customLong("selftest")], help: "test algorithm parts")
   var selfTest = false
   
-  @Flag(name: [.customShort("d"), .customLong ("decompress")], help: "Compress the file.")
+  @Flag(name: [.customShort("d"), .customLong ("decompress")], help: "Decompress the file.")
   var decompress = false
   
   @Flag(name: [.customLong("v"), .customLong("verbose")], help: "Verbose")
   var verbose = false
   
   @Option(name: [.customLong("algorithm")], help: "Algorithm")
-  var algorithm : String = Algorithm.BEN_BWT.rawValue
+  var algorithm : String = Algorithm.BEN_MEC.rawValue
   
   @Argument(help: "input file")
   var file: String?

@@ -8,14 +8,16 @@ import Foundation
 extension ben {
   
   func work(with algorithm: Algorithm) async throws {
-    let fileformat = be42()
+    var fileformat = be42()
     var input = try Data(contentsOf: URL(fileURLWithPath: file!))
-    
+
     if !decompress { // MARK: Compression
-      guard algorithm == .BEN_BWT else {
-        throw AlgorithmError.UnknownAlgorithm
+      fileformat.algorithm = algorithm
+      let rawData: Data
+      switch algorithm {
+      case .BEN_BWT: rawData = try BEN_BWT.compress(input)
+      case .BEN_MEC: rawData = try BEN_MEC.compress(input)
       }
-      let rawData = try BEN_BWT.compress(input)
       let newFileName = "\(file!).ben"
       let output = URL(fileURLWithPath: newFileName)
       var data = Data(fileformat.getHeader())
@@ -23,26 +25,27 @@ extension ben {
       try data.write(to: output)
     }
     else { // MARK: Decompression
-      switch try fileformat.checkHeader(in: [UInt8](input)) {
-      
-      case .BEN_BWT:
-        for _ in 0..<fileformat.headerCount {
-          _ = input.popFirst()
-        }
-        
-        var newFileName = file!
-        if newFileName.lowercased().hasSuffix(".ben"){
-          newFileName.removeLast(".ben".count)
-        }
-        else {
-          newFileName.append(".neb")
-        }
-        let output = URL(fileURLWithPath: newFileName)
-        
-        try BEN_BWT.decompress(input).write(to: output)
-        
-      //default: throw AlgorithmError.UnknownAlgorithm
+      // Der Algorithmus steht in der Datei — nicht auf der Kommandozeile.
+      let algorithmInFile = try fileformat.checkHeader(in: [UInt8](input))
+      for _ in 0..<fileformat.headerCount {
+        _ = input.popFirst()
       }
+
+      var newFileName = file!
+      if newFileName.lowercased().hasSuffix(".ben"){
+        newFileName.removeLast(".ben".count)
+      }
+      else {
+        newFileName.append(".neb")
+      }
+      let output = URL(fileURLWithPath: newFileName)
+
+      let decompressed: Data
+      switch algorithmInFile {
+      case .BEN_BWT: decompressed = try BEN_BWT.decompress(input)
+      case .BEN_MEC: decompressed = try BEN_MEC.decompress(input)
+      }
+      try decompressed.write(to: output)
     }
   }
 }

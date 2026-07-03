@@ -20,25 +20,34 @@ public struct be42 {
   private let availableAlgorithm = [
     0x00 : "unset algorithm",
     0x01 : Algorithm.BEN_BWT.rawValue,
+    0x02 : Algorithm.BEN_MEC.rawValue,
     0xFF : "reserved",
   ]
   public static let MAGIC : [UInt8] = [0xBE, 0x42]
   public var version : UInt8 = 0x01
-  public var algorithm : Algorithm = .BEN_BWT
-  
-  
+  public var algorithm : Algorithm = .BEN_MEC
+
+
   public var headerCount: Int {
     return getHeader().count
   }
-  
+
+  /// Format-Byte des Algorithmus im Container-Header.
+  public static func code(of algorithm: Algorithm) -> UInt8 {
+    switch algorithm {
+    case .BEN_BWT: return 0x01
+    case .BEN_MEC: return 0x02
+    }
+  }
+
   public func getHeader() -> [UInt8] {
     var result = [UInt8]()
     result.append(contentsOf: be42.MAGIC)
     result.append(version)
-    result.append(0x01)
+    result.append(be42.code(of: algorithm))
     return result
   }
-  
+
   public func checkHeader (in data : [UInt8]) throws -> Algorithm {
     guard data.count > getHeader().count else {
       throw be42FormatError.headerNotFound
@@ -49,9 +58,10 @@ public struct be42 {
     guard data[2] >= 0x01 && data[2] <= 0x01 else {
       throw be42FormatError.unknownVersion
     }
-    
+
     switch data[3] {
     case 0x01: return .BEN_BWT
+    case 0x02: return .BEN_MEC
     default:
       throw be42FormatError.unknownAlgorithm
     }
