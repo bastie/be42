@@ -314,6 +314,144 @@ private struct NBCMModel {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// MARK: – Unsafe-Variante des Modells (identische Logik, Pointer statt Arrays)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Sigmoid-Tabellen als rohe Pointer (Prozesslebensdauer, bewusst nie freigegeben).
+nonisolated(unsafe) private let kSquashPtr: UnsafePointer<Int16> = {
+  let p = UnsafeMutablePointer<Int16>.allocate(capacity: 4095)
+  for (i, v) in NBCMSigmoid.squash.enumerated() { p[i] = v }
+  return UnsafePointer(p)
+}()
+nonisolated(unsafe) private let kStretchPtr: UnsafePointer<Int16> = {
+  let p = UnsafeMutablePointer<Int16>.allocate(capacity: 4096)
+  for (i, v) in NBCMSigmoid.stretch.enumerated() { p[i] = v }
+  return UnsafePointer(p)
+}()
+
+/// Wie NBCMModel, aber alle Tabellen als UnsafeMutablePointer — keine
+/// Bounds-Checks, keine COW-Prüfungen im Hot Loop. Die Logik ist Zeile
+/// für Zeile identisch; der Test `unsafeCoderMatchesSafeBitExactly`
+/// erzwingt bitidentische Ausgabe zur sicheren Variante.
+private final class NBCMModelU {
+
+  let fast: UnsafeMutablePointer<Int16>
+  let slow: UnsafeMutablePointer<Int16>
+  let w:    UnsafeMutablePointer<Int>
+  let apm:  UnsafeMutablePointer<Int16>
+  let mtf:  UnsafeMutablePointer<UInt8>
+
+  var seenMask: UInt16 = 0
+  var runLength: Int = 0
+
+  private var curSlot = 0
+  private var curSF = 0
+  private var curSS = 0
+  private var curP = 2048
+  private var curAPMJ = 0
+
+  init() {
+    fast = .allocate(capacity: kNSlots)
+    fast.initialize(repeating: 2048, count: kNSlots)
+    slow = .allocate(capacity: kNSlots)
+    slow.initialize(repeating: 2048, count: kNSlots)
+    w = .allocate(capacity: 2 * kNSlots)
+    w.initialize(repeating: 32768, count: 2 * kNSlots)
+    apm = .allocate(capacity: kNAPMCtx * 33)
+    for c in 0..<kNAPMCtx {
+      for i in 0..<33 {
+        let d = max(-2047, min(2047, (i - 16) * 128))
+        apm[c * 33 + i] = NBCMSigmoid.squash[d + 2047]
+      }
+    }
+    mtf = .allocate(capacity: 16)
+    for i in 0..<16 { mtf[i] = UInt8(i) }
+  }
+
+  deinit {
+    fast.deallocate()
+    slow.deallocate()
+    w.deallocate()
+    apm.deallocate()
+    mtf.deallocate()
+  }
+
+  @inline(__always)
+  private func apmClass(_ slot: Int) -> Int {
+    if slot < kOffRep  { return 0 }
+    if slot < kOffRepC { return 1 }
+    if slot < kOffNewC { return 2 + min((slot - kOffRepC) % 15, 2) }
+    return 5 + min((slot - kOffNewC) % 15, 2)
+  }
+
+  @inline(__always)
+  func predict(_ slot: Int) -> Int {
+    let sf = Int(kStretchPtr[Int(fast[slot])])
+    let ss = Int(kStretchPtr[Int(slow[slot])])
+    curSlot = slot
+    curSF = sf
+    curSS = ss
+    var dot = (sf &* w[2 * slot] &+ ss &* w[2 * slot + 1]) >> 16
+    if dot > 2047 { dot = 2047 } else if dot < -2047 { dot = -2047 }
+    var p = Int(kSquashPtr[dot + 2047])
+    if p < 1 { p = 1 } else if p > 4095 { p = 4095 }
+    curP = p
+
+    let actx = apmClass(slot) * 33
+    let s = Int(kStretchPtr[p]) + 2048
+    var j = s >> 7
+    let wgt = s & 127
+    if j > 31 { j = 31 }
+    curAPMJ = actx + j
+    let pa = (Int(apm[curAPMJ]) * (128 - wgt) + Int(apm[curAPMJ + 1]) * wgt) >> 7
+    var pf = (p + 3 * pa) >> 2
+    if pf < 1 { pf = 1 } else if pf > 4095 { pf = 4095 }
+    return pf
+  }
+
+  @inline(__always)
+  func update(_ bit: Int) {
+    let t12 = bit << 12
+    let slot = curSlot
+    fast[slot] = Int16(Int(fast[slot]) + ((t12 - Int(fast[slot])) >> kFastShift))
+    slow[slot] = Int16(Int(slow[slot]) + ((t12 - Int(slow[slot])) >> kSlowShift))
+    let err = t12 - curP
+    var wf = w[2 * slot] + ((curSF * err) >> kLearnShift)
+    if wf > (1 << 20) { wf = 1 << 20 } else if wf < -(1 << 20) { wf = -(1 << 20) }
+    w[2 * slot] = wf
+    var ws = w[2 * slot + 1] + ((curSS * err) >> kLearnShift)
+    if ws > (1 << 20) { ws = 1 << 20 } else if ws < -(1 << 20) { ws = -(1 << 20) }
+    w[2 * slot + 1] = ws
+    apm[curAPMJ]     = Int16(Int(apm[curAPMJ])     + ((t12 - Int(apm[curAPMJ]))     >> kAPMRate))
+    apm[curAPMJ + 1] = Int16(Int(apm[curAPMJ + 1]) + ((t12 - Int(apm[curAPMJ + 1])) >> kAPMRate))
+  }
+
+  @inline(__always)
+  func moveToFront(_ v: UInt8) {
+    guard mtf[0] != v else { return }
+    var i = 1
+    while mtf[i] != v { i += 1 }
+    while i > 0 {
+      mtf[i] = mtf[i - 1]
+      i -= 1
+    }
+    mtf[0] = v
+  }
+
+  @inline(__always)
+  func pushSymbol(_ v: UInt8, isRepeat: Bool, d: Int) {
+    if isRepeat {
+      seenMask  = UInt16(1) << v
+      runLength = (d == 1) ? runLength + 1 : 0
+    } else {
+      seenMask |= UInt16(1) << v
+      runLength = 0
+    }
+    moveToFront(v)
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // MARK: – BEN_NBCM
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -399,6 +537,97 @@ public enum BEN_NBCM {
   }
 
   // ───────────────────────────────────────────────────────────────────────────
+  // MARK: Symbol kodieren/dekodieren (unsafe-Variante, logikidentisch)
+  // ───────────────────────────────────────────────────────────────────────────
+
+  private static func encodeU(_ v: UInt8, _ model: NBCMModelU,
+                              _ rc: inout NBCMRangeEncoder) {
+    let d = model.seenMask.nonzeroBitCount
+    let isRepeat = (model.seenMask >> v) & 1 == 1
+
+    if d != 0 && d != 16 {
+      let slot = d == 1 ? kOffRun + min(model.runLength, 15) : kOffRep + d
+      let p = model.predict(slot)
+      rc.encode(4096 - p, isRepeat ? 1 : 0)
+      model.update(isRepeat ? 1 : 0)
+    }
+
+    let total = isRepeat ? d : 16 - d
+    let off = isRepeat ? kOffRepC : kOffNewC
+    var j = 0
+    var m = 0
+    while m < 16 {
+      let c = model.mtf[m]
+      m += 1
+      let inSeen = (model.seenMask >> c) & 1 == 1
+      if inSeen != isRepeat { continue }
+      if j == total - 1 {
+        assert(c == v, "BEN_NBCM: Modell-Desync im Encoder (unsafe)")
+        break
+      }
+      let hit = (c == v) ? 1 : 0
+      let p = model.predict(off + model2ChainContext(j, d))
+      rc.encode(4096 - p, hit)
+      model.update(hit)
+      if hit == 1 { break }
+      j += 1
+    }
+
+    model.pushSymbol(v, isRepeat: isRepeat, d: d)
+  }
+
+  private static func decodeU(_ model: NBCMModelU,
+                              _ rc: inout NBCMRangeDecoder) -> UInt8 {
+    let d = model.seenMask.nonzeroBitCount
+
+    let isRepeat: Bool
+    if d == 0 {
+      isRepeat = false
+    } else if d == 16 {
+      isRepeat = true
+    } else {
+      let slot = d == 1 ? kOffRun + min(model.runLength, 15) : kOffRep + d
+      let p = model.predict(slot)
+      let bit = rc.decode(4096 - p)
+      model.update(bit)
+      isRepeat = bit == 1
+    }
+
+    let total = isRepeat ? d : 16 - d
+    let off = isRepeat ? kOffRepC : kOffNewC
+    var v: UInt8 = 0
+    var j = 0
+    var m = 0
+    while m < 16 {
+      let c = model.mtf[m]
+      m += 1
+      let inSeen = (model.seenMask >> c) & 1 == 1
+      if inSeen != isRepeat { continue }
+      if j == total - 1 {
+        v = c
+        break
+      }
+      let p = model.predict(off + model2ChainContext(j, d))
+      let hit = rc.decode(4096 - p)
+      model.update(hit)
+      if hit == 1 {
+        v = c
+        break
+      }
+      j += 1
+    }
+
+    model.pushSymbol(v, isRepeat: isRepeat, d: d)
+    return v
+  }
+
+  /// Ketten-Kontext (identisch zu NBCMModel.chainContext).
+  @inline(__always)
+  private static func model2ChainContext(_ j: Int, _ d: Int) -> Int {
+    return j + 15 * min(d, 4)
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────
   // MARK: Komprimieren
   // ───────────────────────────────────────────────────────────────────────────
 
@@ -413,7 +642,7 @@ public enum BEN_NBCM {
     return nibbles
   }
 
-  public static func compress(_ input: Data) throws -> Data {
+  public static func compress(_ input: Data, unsafeCoder: Bool = false) throws -> Data {
     var nibbles = nibbles(from: input)
     let bwtResult = NibbleBWT.transform(nibbles)
     nibbles = bwtResult.transformed
@@ -435,10 +664,17 @@ public enum BEN_NBCM {
     appendBE32(bwtIndex)
     if nibbles.isEmpty { return out }
 
-    var model = NBCMModel()
-    var rc    = NBCMRangeEncoder()
-    for v in nibbles {
-      encode(v, &model, &rc)
+    var rc = NBCMRangeEncoder()
+    if unsafeCoder {
+      let model = NBCMModelU()
+      nibbles.withUnsafeBufferPointer { nb in
+        for i in 0..<nb.count { encodeU(nb[i], model, &rc) }
+      }
+    } else {
+      var model = NBCMModel()
+      for v in nibbles {
+        encode(v, &model, &rc)
+      }
     }
     rc.flush()
 
@@ -450,7 +686,7 @@ public enum BEN_NBCM {
   // MARK: Dekomprimieren
   // ───────────────────────────────────────────────────────────────────────────
 
-  public static func decompress(_ compressed: Data) throws -> Data {
+  public static func decompress(_ compressed: Data, unsafeCoder: Bool = false) throws -> Data {
     let raw = Array(compressed)
     guard raw.count >= 8 else {
       throw BEN_NBCMError.invalidData("Header zu kurz (\(raw.count) < 8 Bytes)")
@@ -470,12 +706,19 @@ public enum BEN_NBCM {
       throw BEN_NBCMError.invalidData("BWT-Index \(bwtIndex) ≥ Nibble-Anzahl \(nibbleCount)")
     }
 
-    var model = NBCMModel()
-    var rc    = NBCMRangeDecoder(data: raw, startPos: 8)
+    var rc = NBCMRangeDecoder(data: raw, startPos: 8)
     var nibbles = [UInt8]()
     nibbles.reserveCapacity(min(Int(nibbleCount), 1 << 22))
-    for _ in 0..<Int(nibbleCount) {
-      nibbles.append(decode(&model, &rc))
+    if unsafeCoder {
+      let model = NBCMModelU()
+      for _ in 0..<Int(nibbleCount) {
+        nibbles.append(decodeU(model, &rc))
+      }
+    } else {
+      var model = NBCMModel()
+      for _ in 0..<Int(nibbleCount) {
+        nibbles.append(decode(&model, &rc))
+      }
     }
 
     let originalNibbles = NibbleBWT.inverseTransform(nibbles, index: Int(bwtIndex))
@@ -495,13 +738,13 @@ public enum BEN_NBCM {
   // ───────────────────────────────────────────────────────────────────────────
 
   /// Komprimiert einen einzelnen Block (identisches Payload wie compress).
-  static func compressBlock(_ input: Data) throws -> Data {
-    return try compress(input)
+  static func compressBlock(_ input: Data, unsafeCoder: Bool = false) throws -> Data {
+    return try compress(input, unsafeCoder: unsafeCoder)
   }
 
   /// Dekomprimiert einen einzelnen Block.
-  static func decompressBlock(_ compressed: Data) throws -> Data {
-    return try decompress(compressed)
+  static func decompressBlock(_ compressed: Data, unsafeCoder: Bool = false) throws -> Data {
+    return try decompress(compressed, unsafeCoder: unsafeCoder)
   }
 
   // ───────────────────────────────────────────────────────────────────────────

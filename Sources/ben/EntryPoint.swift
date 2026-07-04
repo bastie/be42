@@ -18,7 +18,7 @@ struct ben : AsyncParsableCommand {
       Copyright © 2026 Sebastian Ritter
       License Apache 2.0 
       """,
-      version: "0.49.0",
+      version: "0.50.0",
       helpNames: .long
     )
   }
@@ -36,12 +36,16 @@ struct ben : AsyncParsableCommand {
   var algorithm : String = Algorithm.BEN_NBCMB.rawValue
 
   @Option(name: [.customLong("blocksize")],
-          help: "Block size in MiB for nbcmb (bigger = better ratio, smaller = less RAM)")
-  var blocksize : Int = 64
+          help: "Block size in MiB for nbcmb (bigger = better ratio, smaller = more parallelism/less RAM). Default: automatic from file size and threads, 8...64 MiB")
+  var blocksize : Int? = nil
 
   @Option(name: [.customShort("T"), .customLong("threads")],
           help: "Parallel blocks for nbcmb, 0 = number of CPU cores (mind RAM: ~36 bytes per input byte per parallel block)")
   var threads : Int = 0
+
+  @Flag(name: [.customLong("unsafe")],
+        help: "Use pointer-based hot loops without bounds checks (same output, faster; you accept the safety trade-off)")
+  var unsafeCoder = false
   
   @Argument(help: "input file")
   var file: String?
@@ -67,9 +71,12 @@ struct ben : AsyncParsableCommand {
       print ("{")
       print ("\"name\": \"\(ben.configuration.commandName!)\",")
       print ("\"algorithm\": \"",terminator: "")
-      debugPrint(algorithm, terminator: "")
-      print("\",")
-      print ("\"version\": \"\(ben.configuration.version)\"")
+      print (algorithm, terminator: "")
+      print ("\",")
+      print ("\"version\": \"\(ben.configuration.version)\"", terminator: ",\n")
+      print ("\"threads\": \"\(threads)\"", terminator: ",\n")
+      print ("\"unsafe\": \"\(unsafeCoder)\"", terminator: ",\n")
+      print ("\"blocksize\": \"\(blocksize?.description ?? "automatic")\"")
     }
     
     // the work
@@ -87,8 +94,10 @@ struct ben : AsyncParsableCommand {
       throw ValidationError("Unknown algorithm: \(algorithm)")
     }
 
-    guard (1...2048).contains(blocksize) else {
-      throw ValidationError("Block size must be 1...2048 MiB: \(blocksize)")
+    if let blocksize {
+      guard (1...2048).contains(blocksize) else {
+        throw ValidationError("Block size must be 1...2048 MiB: \(blocksize)")
+      }
     }
 
     guard (0...256).contains(threads) else {

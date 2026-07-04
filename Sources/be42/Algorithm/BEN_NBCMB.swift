@@ -55,7 +55,8 @@ public enum BEN_NBCMB {
   // ───────────────────────────────────────────────────────────────────────────
 
   public static func compress(_ input: Data,
-                              blockSize: Int = defaultBlockSize) throws -> Data {
+                              blockSize: Int = defaultBlockSize,
+                              unsafeCoder: Bool = false) throws -> Data {
     guard blockSize > 0 else {
       throw BEN_NBCMBError.invalidData("Blockgröße muss > 0 sein")
     }
@@ -80,7 +81,7 @@ public enum BEN_NBCMB {
                             limitedBy: input.endIndex) ?? input.endIndex
       // Data(...) erzwingt 0-basierte Indizes für den Block
       let block = Data(input[offset..<end])
-      let compressed = try BEN_NBCM.compressBlock(block)
+      let compressed = try BEN_NBCM.compressBlock(block, unsafeCoder: unsafeCoder)
       appendBE32(UInt32(compressed.count))
       out.append(compressed)
       offset = end
@@ -98,7 +99,8 @@ public enum BEN_NBCMB {
   /// (~36 Bytes je Eingabe-Byte) — kleinere Blöcke erlauben mehr Threads.
   public static func compressParallel(_ input: Data,
                                       blockSize: Int = defaultBlockSize,
-                                      threads: Int = 0) async throws -> Data {
+                                      threads: Int = 0,
+                                      unsafeCoder: Bool = false) async throws -> Data {
     guard blockSize > 0 else {
       throw BEN_NBCMBError.invalidData("Blockgröße muss > 0 sein")
     }
@@ -106,8 +108,11 @@ public enum BEN_NBCMB {
       throw BEN_NBCMBError.fileTooLarge
     }
     let blockCount = input.isEmpty ? 0 : (input.count + blockSize - 1) / blockSize
-    let width = max(1, threads == 0 ? ProcessInfo.processInfo.activeProcessorCount
+    let activeThreads = max(1, threads == 0 ? ProcessInfo.processInfo.activeProcessorCount
                                     : threads)
+    #if DEBUG
+    print ("Threads: \(activeThreads)")
+    #endif
 
     // Blöcke schneiden (Data-Slices sind billig, Kopie erst im Task)
     var blocks = [Data]()
@@ -124,10 +129,10 @@ public enum BEN_NBCMB {
     try await withThrowingTaskGroup(of: (Int, Data).self) { group in
       var next = 0
       // Fenster füllen
-      while next < min(width, blockCount) {
+      while next < min(activeThreads, blockCount) {
         let idx = next
         let block = blocks[idx]
-        group.addTask { (idx, try BEN_NBCM.compressBlock(block)) }
+        group.addTask { (idx, try BEN_NBCM.compressBlock(block, unsafeCoder: unsafeCoder)) }
         next += 1
       }
       // je fertigem Block einen nachschieben
@@ -136,7 +141,7 @@ public enum BEN_NBCMB {
         if next < blockCount {
           let i = next
           let block = blocks[i]
-          group.addTask { (i, try BEN_NBCM.compressBlock(block)) }
+          group.addTask { (i, try BEN_NBCM.compressBlock(block, unsafeCoder: unsafeCoder)) }
           next += 1
         }
       }
@@ -165,7 +170,8 @@ public enum BEN_NBCMB {
   /// Wie `decompress`, aber Blöcke werden parallel dekodiert —
   /// möglich durch die Längenprefixe im Format.
   public static func decompressParallel(_ compressed: Data,
-                                        threads: Int = 0) async throws -> Data {
+                                        threads: Int = 0,
+                                        unsafeCoder: Bool = false) async throws -> Data {
     let raw = Array(compressed)
     guard raw.count >= 8 else {
       throw BEN_NBCMBError.invalidData("Header zu kurz (\(raw.count) < 8 Bytes)")
@@ -206,7 +212,7 @@ public enum BEN_NBCMB {
       func submit(_ idx: Int) {
         let (start, len) = ranges[idx]
         let blockData = Data(raw[start..<start + len])
-        group.addTask { (idx, try BEN_NBCM.decompressBlock(blockData)) }
+        group.addTask { (idx, try BEN_NBCM.decompressBlock(blockData, unsafeCoder: unsafeCoder)) }
       }
       while next < min(width, blockCount) { submit(next); next += 1 }
       while let (idx, data) = try await group.next() {
@@ -233,7 +239,8 @@ public enum BEN_NBCMB {
   // MARK: Dekomprimieren
   // ───────────────────────────────────────────────────────────────────────────
 
-  public static func decompress(_ compressed: Data) throws -> Data {
+  public static func decompress(_ compressed: Data,
+                                unsafeCoder: Bool = false) throws -> Data {
     let raw = Array(compressed)
     guard raw.count >= 8 else {
       throw BEN_NBCMBError.invalidData("Header zu kurz (\(raw.count) < 8 Bytes)")
@@ -261,7 +268,7 @@ public enum BEN_NBCMB {
           "Block \(blockIndex): \(compLen) Bytes erwartet, nur \(raw.count - off) vorhanden")
       }
       let blockData = Data(raw[off..<off + compLen])
-      let block = try BEN_NBCM.decompressBlock(blockData)
+      let block = try BEN_NBCM.decompressBlock(blockData, unsafeCoder: unsafeCoder)
       guard block.count <= blockSize else {
         throw BEN_NBCMBError.invalidData(
           "Block \(blockIndex): dekodierte Größe \(block.count) > Blockgröße \(blockSize)")

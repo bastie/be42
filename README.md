@@ -101,6 +101,13 @@ Apache License Version 2.0
 
 # Version
 
+**0.50.0** (speed branch)
+
+Speed package 2, output stays bit identical:
+
+1. `--unsafe`: pointer based hot loops for the coder (model tables as raw pointers, no bounds checks, no COW checks). Safe and unsafe implementation live side by side — the user decides whether to accept the safety trade-off. A test enforces bit identical output and cross decoding between both variants
+2. nibble BWT forward/inverse transform now use buffer pointers and an Int32 LF mapping in the standard path
+
 **0.49.0** (speed branch)
 
 First speed package, output stays bit identical:

@@ -19,10 +19,22 @@ extension ben {
       case .BEN_MEC: rawData = try BEN_MEC.compress(input)
       case .BEN_CM:  rawData = try BEN_CM.compress(input)
       case .BEN_NBCM: rawData = try BEN_NBCM.compress(input)
-      case .BEN_NBCMB: rawData = try await BEN_NBCMB.compressParallel(
-                                       input,
-                                       blockSize: blocksize * 1024 * 1024,
-                                       threads: threads)
+      case .BEN_NBCMB:
+        // Blockgröße: explizit gesetzt oder automatisch so, dass alle
+        // Threads Arbeit bekommen (8...64 MiB) — sonst begrenzt die
+        // Blockanzahl die Parallelität (enwik8 mit 64 MiB = nur 2 Blöcke).
+        let effectiveThreads = threads == 0
+          ? ProcessInfo.processInfo.activeProcessorCount : threads
+        let bs: Int
+        if let blocksize {
+          bs = blocksize * 1024 * 1024
+        } else {
+          let perThread = (input.count + effectiveThreads - 1) / max(1, effectiveThreads)
+          bs = min(64 * 1024 * 1024, max(8 * 1024 * 1024, perThread))
+        }
+        rawData = try await BEN_NBCMB.compressParallel(
+                        input, blockSize: bs,
+                        threads: threads, unsafeCoder: unsafeCoder)
       }
       let newFileName = "\(file!).ben"
       let output = URL(fileURLWithPath: newFileName)
@@ -53,7 +65,8 @@ extension ben {
       case .BEN_CM:  decompressed = try BEN_CM.decompress(input)
       case .BEN_NBCM: decompressed = try BEN_NBCM.decompress(input)
       case .BEN_NBCMB: decompressed = try await BEN_NBCMB.decompressParallel(
-                                            input, threads: threads)
+                                            input, threads: threads,
+                                            unsafeCoder: unsafeCoder)
       }
       try decompressed.write(to: output)
     }

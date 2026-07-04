@@ -40,15 +40,23 @@ public enum NibbleBWT: Sendable {
     
     let text = nibbles.map { Int($0) }
     let sa   = builder.build(text: text, alphabetSize: 16)
-    
+
     var transformed   = [UInt8](repeating: 0, count: n)
     var originalIndex = 0
-    
-    for i in 0 ..< n {
-      transformed[i] = nibbles[(sa[i] + n - 1) % n]
-      if sa[i] == 0 { originalIndex = i }
+
+    // Speed: Buffer-Pointer, Modulo durch Verzweigung ersetzt
+    transformed.withUnsafeMutableBufferPointer { t in
+      nibbles.withUnsafeBufferPointer { nb in
+        sa.withUnsafeBufferPointer { s in
+          for i in 0 ..< n {
+            let si = s[i]
+            t[i] = nb[si == 0 ? n - 1 : si - 1]
+            if si == 0 { originalIndex = i }
+          }
+        }
+      }
     }
-    
+
     return NibbleBWTResult(transformed: transformed, index: originalIndex)
   }
   
@@ -67,18 +75,27 @@ public enum NibbleBWT: Sendable {
     for v in 0 ..< 16 { firstOccurrence[v] = runningSum; runningSum += countPerValue[v] }
     
     var rank = [Int](repeating: 0, count: 16)
-    var lf   = [Int](repeating: 0, count: n)
-    for i in 0 ..< n {
-      let v = Int(transformed[i])
-      lf[i]   = firstOccurrence[v] + rank[v]
-      rank[v] += 1
-    }
-    
+    var lf   = [Int32](repeating: 0, count: n)   // Int32: halbe Bandbreite
     var result  = [UInt8](repeating: 0, count: n)
-    var current = index
-    for i in stride(from: n - 1, through: 0, by: -1) {
-      result[i] = transformed[current]
-      current   = lf[current]
+
+    // Speed: Buffer-Pointer — LF-Mapping und Rücklauf sind Random-Access-lastig
+    transformed.withUnsafeBufferPointer { t in
+      lf.withUnsafeMutableBufferPointer { l in
+        rank.withUnsafeMutableBufferPointer { r in
+          for i in 0 ..< n {
+            let v = Int(t[i])
+            l[i] = Int32(firstOccurrence[v] + r[v])
+            r[v] += 1
+          }
+        }
+        result.withUnsafeMutableBufferPointer { res in
+          var current = index
+          for i in stride(from: n - 1, through: 0, by: -1) {
+            res[i]  = t[current]
+            current = Int(l[current])
+          }
+        }
+      }
     }
     return result
   }

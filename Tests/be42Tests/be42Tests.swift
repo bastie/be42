@@ -240,6 +240,21 @@ private let edgeCases: [Data] = [
     }
   }
 
+  @Test func unsafeCoderMatchesSafeBitExactly() async throws {
+    var rng = SeededRandom(state: 0xBE42_00A5_AFEC_0DE5)
+    var orig = Data(String(repeating: "safe und unsafe muessen identisch sein ", count: 400).utf8)
+    orig.append(rng.data(count: 30_000))
+    let safe = try BEN_NBCMB.compress(orig, blockSize: 8192)
+    let fast = try BEN_NBCMB.compress(orig, blockSize: 8192, unsafeCoder: true)
+    #expect(fast == safe, "unsafe-Coder muss bitidentische Ausgabe liefern")
+    // kreuzweise: unsafe-Strom mit safe dekodieren und umgekehrt
+    #expect(try BEN_NBCMB.decompress(fast) == orig)
+    #expect(try BEN_NBCMB.decompress(safe, unsafeCoder: true) == orig)
+    let par = try await BEN_NBCMB.compressParallel(orig, blockSize: 8192,
+                                                   threads: 4, unsafeCoder: true)
+    #expect(par == safe)
+  }
+
   @Test func parallelMatchesSequentialBitExactly() async throws {
     var rng = SeededRandom(state: 0xBE42_5EED_0000_0001)
     // gemischte Inhalte: Text + Zufall, mehrere Blöcke, mehrere Threadzahlen
