@@ -51,42 +51,48 @@ Every nibble is coded as 4 binary tree decisions. Seven predictions are combined
 
 ## compare
 
+Data on https://github.com/bastie/compression-corpus
+
 ### enwik8
 
-| compressor | version | parameter | size in bytes |     % | time     | bytes per second | comment            |
-| ---------- | ------- | --------- | ------------- | ----- | -------- | ---------------- | ------------------ |
-| ben        |    0.42 |           |    32.280.526 | 32.28 |  2:58.30 |          181.046 | non optimized code |
-| ben        |    0.43 |           |    22.805.378 | 22.81 |  2:44.67 |          607.275 | nbmec              |
-| ben        |    0.47 |           |    22.592.372 | 22.59 |  2:51.58 |          582.819 | nbcm, 2nd place    |
-| ben        |    0.48 | 16MiB blk |    24.661.973 | 24.66 |  2:16.67 |          731.690 | nbcmb, block cost  |
-| ben+xz     |         | xz -9ekf  |    31.300.064 | 31.30 |  3:06.06 |          168.225 | ben 0.42           |
-| ben+xz     |         | xz -9ekf  |    22.769.404 | 22.77 |  3:11.54 |                  | ben 0.43           |
-| bzip2      |   1.0.8 | -9zkf     |    29.008.758 | 29.01 |  0:04.75 |        6.107.106 |                    |
-| gzip       |     479 | -9kf      |    36.475.811 | 36.48 |  0:03.52 |       10.362.446 | fast               |
-| xz         |   5.8.2 | -9ekf     |    24.831.656 | 24.83 |  0:56.00 |          443.422 |                    |
-| zopfli     |   1.0.3 | --i100    |    34.955.165 | 34.96 | 10:10.79 |           57.229 |                    |
-| zpaq       |    7.15 | -m5       |    19.625.015 | 19.63 |  4:32.29 |           71.907 | best               |
-| zstd       |   1.5.7 | -k19f     |    26.944.227 | 26.94 |  0:41.83 |          664.136 |                    |
+| compressor | version | parameter | size in bytes |     % | time     | comment            |
+| ---------- | ------- | --------- | ------------- | ----- | -------- | ------------------ |
+| ben        |    0.50 | -T 1      |   *22.592.372* | 22.59 | 2:13.39 | nbcm, 2nd place    |
+| brotli     |   1.2.0 | -Zkf      |    25.742.001 | 25.74 |  2:30.86 |                    | 
+| bzip2      |   1.0.8 | -9zkf     |    29.008.758 | 29.01 | *0:04.75* |                   |
+| gzip       |     479 | -9kf      |    36.475.811 | 36.48 |**0:03.52** | fast             |
+| xz         |   5.8.2 | -ekfT 1   |    24.831.656 | 24.83 |  0:40.77 |                    |
+| zopfli     |   1.0.3 | --i100    |    34.955.165 | 34.96 | 10:10.79 |                    |
+| zpaq       |    7.15 | -m5       |  **19.625.015** | 19.63 |4:32.29 | best, 12 threads   |
+| zstd       |   1.5.7 | -k19f     |    26.944.227 | 26.94 |  0:41.83 |                    |
+
+>Note: be42 are not so good as zpaq but better than other (only) on text data.
+
+### canterbury
+
+| compressor | version | parameter | size in bytes |     % | time     | comment            |
+| ---------- | ------- | --------- | ------------- | ----- | -------- | ------------------ |
+| ben        |    0.50 | -T 1      |       553.942 |  |  0:01.66 | nbcm                    |
+| brotli     |   1.2.0 | -Zkf      |       495.485 |  |  0:03.73 |                         | 
+| bzip2      |   1.0.8 | -9zkf     |       568.342 |  |**0:00.13** | fast                  |
+| gzip       |     479 | -9kf      |       730.003 |  | *0:00.50* |                        |
+| xz         |   5.8.2 | -ekfT 1   |      *484.656* |  | 0:01.07 |                         |
+| zopfli     |   1.0.3 | --i100    |       668.429 |  |  0:24.26 |                         |
+| zpaq       |    7.15 | -m5       |     **363.141** |  |0:07.62 | best, 12 threads        |
+| zstd       |   1.5.7 | -k19f     |       511.745 |  |  0:00.71 |                         |
 
 ### silesia
 
-Algorithm: nbcm (nibble.bwt.chain.mixing) 
-
-```bash
-Maxmilian:silesia$ time xz -ekfT 1 silesia.tar
-xz -ekfT 1 silesia.tar  75,24s user 1,07s system 96% cpu 1:19,04 total
-Maxmilian:silesia$ time ../../.build/release/ben silesia.tar
-../../.build/release/ben silesia.tar  471,09s user 297,99s system 76% cpu 16:50,79 total
-Maxmilian:silesia$ ls -lisa
-total 631992
-432009696      0 drwxr-xr-x  5 bastie  staff        160  3 Juli 17:04 .
-432009691      0 drwxr-xr-x  8 bastie  staff        256  3 Juli 16:37 ..
-432010254 430528 -rwxr-xr-x  1 bastie  staff  211948544  3 Juli 16:37 silesia.tar
-432014353 105192 -rw-r--r--  1 bastie  staff   53855592  3 Juli 17:04 silesia.tar.ben
-432010379  96272 -rwxr-xr-x  1 bastie  staff   48928248  3 Juli 16:37 silesia.tar.xz
-```
-
-### enwik
+| compressor | version | parameter | size in bytes |     % | time     | comment            |
+| ---------- | ------- | --------- | ------------- | ----- | -------- | ------------------ |
+| ben        |    0.50 | -T 1      |    53.855.592 |  |  5:15.66 | nbcm                    |
+| brotli     |   1.2.0 | -Zkf      |    49.924.566 |  |  5:08.63 |                         | 
+| bzip2      |   1.0.8 | -9zkf     |    54.535.546 |  |**0:11.59** | fast                  |
+| gzip       |     479 | -9kf      |       730.003 |  | *0:12.49* |                        |
+| xz         |   5.8.2 | -ekfT 1   |   *48.928.248* |  | 1:09.15 |                         |
+| zopfli     |   1.0.3 | --i100    |    64.691.382 |  | 39:34.10 |                         |
+| zpaq       |    7.15 | -m5       |  **40.199.494** |  |2:52.25 | best, 12 threads        |
+| zstd       |   1.5.7 | -k19f     |    52.854.383 |  |  0:22.31 |                         |
 
 
 # Dependencies
