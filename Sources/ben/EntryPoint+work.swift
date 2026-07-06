@@ -26,6 +26,7 @@ extension ben {
       case .BEN_MEC: rawData = try BEN_MEC.compress(input)
       case .BEN_CM:  rawData = try BEN_CM.compress(input)
       case .BEN_NBCM: rawData = try BEN_NBCM.compress(input, useGPU: useGPU)
+      case .BEN_CME: rawData = try BEN_CME.compress(input, unsafeCoder: unsafeCoder)
       case .BEN_NBCMB, .BEN_NBCMBF:
         // Blockgröße: explizit gesetzt oder automatisch so, dass alle
         // Threads Arbeit bekommen (8...64 MiB) — sonst begrenzt die
@@ -84,6 +85,8 @@ extension ben {
                                             unsafeCoder: unsafeCoder)
       case .BEN_NBCMBF: decompressed = try await BEN_NBCMBF.decompressParallel(
                                             input, threads: threads,
+                                            unsafeCoder: unsafeCoder)
+      case .BEN_CME: decompressed = try BEN_CME.decompress(input,
                                             unsafeCoder: unsafeCoder)
       }
       try decompressed.write(to: output)

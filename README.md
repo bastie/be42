@@ -7,7 +7,7 @@
 
 ## Idee
 
-Nahezu(? oder) alle Kompressionsalgorithmen betrachten eine Datei als Byte-Strom mit den expliziten Informationen Byte-Offset und Byte-Wert. Die meisten ersetzen wiederkehrende Sequenzen durch Referenzen — und ja, das funktioniert hervorragend.
+Nahezu (oder?) alle Kompressionsalgorithmen betrachten eine Datei als Byte-Strom mit den expliziten Informationen Byte-Offset und Byte-Wert. Die meisten ersetzen wiederkehrende Sequenzen durch Referenzen — und ja, das funktioniert hervorragend.
 
 Dieser Kompressionsalgorithmus schaut anders hin und nutzt eine andere Sicht auf die Datei: die **Dateistruktur als Kompressionsgrundlage**. Jede Datei lässt sich beschreiben als wiederholter Teil von Permutation von Werten. Eine Permutation endet mit dem ersten wiederholten Wert. Dieser Wert kann auch als Bindeglied zweier Permutationen gesehen werden, denn die eine endet mit ihm und die nächste beginnt mit ihm. Am Ende kann ein Rest bleiben.
 
@@ -60,6 +60,7 @@ Daten unter https://github.com/bastie/compression-corpus
 | ben        |    0.51 | -T 1       |    22.592.385  | 22.59 |  3:48.78 | nbcmbf             |
 | ben        |    0.51 | -T 8       |    25.043.401  | 25.04 |  0:47.46 | nbcmbf             |
 | ben        |    0.52 | -T 1 --gpu |   *22.592.372* | 22.59 |  1:06.93 | nbcm, GPU, bitidentisch zur CPU |
+| ben        |    0.53 | --unsafe   |    24.112.243  | 24.11 |  3:13.36 | ncmme, schlägt xz, hinter nbcm (Text ist nicht das Zielfeld von ncmme) |
 | brotli     |   1.2.0 | -Zkf       |    25.742.001  | 25.74 |  2:30.86 |                    |
 | bzip2      |   1.0.8 | -9zkf      |    29.008.758  | 29.01 | *0:04.75*|                    |
 | gzip       |     479 | -9kf       |    36.475.811  | 36.48 |**0:03.52** | schnell          |
@@ -74,15 +75,16 @@ Daten unter https://github.com/bastie/compression-corpus
 
 | Kompressor | Version | Parameter | Größe in Bytes |     % | Zeit     | Kommentar          |
 | ---------- | ------- | --------- | -------------- | ----- | -------- | ------------------ |
-| ben        |    0.50 | -T 1      |       553.942 |  |  0:01.66 | nbcm                    |
-| ben        |    0.51 |           |       547.959 |  |  0:00.79 | --blocksize 1           |
-| brotli     |   1.2.0 | -Zkf      |       495.485 |  |  0:03.73 |                         |
-| bzip2      |   1.0.8 | -9zkf     |       568.342 |  |**0:00.13** | schnell               |
-| gzip       |     479 | -9kf      |       730.003 |  | *0:00.50* |                        |
-| xz         |   5.8.2 | -ekfT 1   |      *484.656* |  | 0:01.07 |                         |
-| zopfli     |   1.0.3 | --i100    |       668.429 |  |  0:24.26 |                         |
-| zpaq       |    7.15 | -m5       |     **363.141** |  |0:07.62 | am besten, 12 Threads   |
-| zstd       |   1.5.7 | -k19f     |       511.745 |  |  0:00.71 |                         |
+| ben        |    0.50 | -T 1      |        553.942 |  |  0:01.66 | nbcm                    |
+| ben        |    0.51 |           |        547.959 |  |  0:00.79 | --blocksize 1           |
+| ben        |    0.53 |           |       *475 421*|  |  0:04.30 | ncmme, 2. Platz         |
+| brotli     |   1.2.0 | -Zkf      |        495.485 |  |  0:03.73 |                         |
+| bzip2      |   1.0.8 | -9zkf     |        568.342 |  |**0:00.13** | schnell               |
+| gzip       |     479 | -9kf      |        730.003 |  | *0:00.50* |                        |
+| xz         |   5.8.2 | -ekfT 1   |        484.656 |  |  0:01.07 |                         |
+| zopfli     |   1.0.3 | --i100    |        668.429 |  |  0:24.26 |                         |
+| zpaq       |    7.15 | -m5       |      **363.141**|  | 0:07.62 | am besten, 12 Threads   |
+| zstd       |   1.5.7 | -k19f     |        511.745 |  |  0:00.71 |                         |
 
 ### silesia
 
@@ -90,10 +92,11 @@ Daten unter https://github.com/bastie/compression-corpus
 | ---------- | ------- | --------- | -------------- | ----- | -------- | ------------------ |
 | ben        |    0.50 | -T 1      |    53.855.592 |  |  5:15.66 | nbcm                    |
 | ben        |    0.51 |           |    51.875.294 |  |  2:24.44 |                         |
+| ben        |    0.53 |           |   *48.254.174*|  |  5:30.84 | ncmme, 2. Platz         |
 | brotli     |   1.2.0 | -Zkf      |    49.924.566 |  |  5:08.63 |                         |
 | bzip2      |   1.0.8 | -9zkf     |    54.535.546 |  |**0:11.59** | schnell               |
 | gzip       |     479 | -9kf      |    67.653.762 |  | *0:12.61* |                        |
-| xz         |   5.8.2 | -ekfT 1   |   *48.928.248* |  | 1:09.15 |                         |
+| xz         |   5.8.2 | -ekfT 1   |    48.928.248 |  |  1:09.15 |                         |
 | zopfli     |   1.0.3 | --i100    |    64.691.382 |  | 39:34.10 |                         |
 | zpaq       |    7.15 | -m5       |  **40.199.494** |  |2:52.25 | am besten, 12 Threads   |
 | zstd       |   1.5.7 | -k19f     |    52.854.383 |  |  0:22.31 |                         |
@@ -111,6 +114,19 @@ Apache License Version 2.0
 
 # Version
 
+**0.53.0**
+
+Neuer Algorithmus *ncmme* (0x07, Katalog Nr. 59 / Schritt 13): die geparkte ncmm-Linie (Context-Mixing ohne BWT, 0x03) erweitert — das Permutations-/Markov-Ketten-/Geburtstagsparadox-Fundament bleibt unangetastet, es kommen ausschließlich zusätzliche implizite Informationsquellen hinzu:
+
+1. **Alignment-Kontext** (Nr. 12/27): Byte-Position mod 8 als eigenes Kontextmodell. In der BWT-freien ncmm-Linie ist die Original-Position kausal verfügbar — der Architektur-Konflikt der nbcm-Linie existiert hier nicht. Python-Referenzmessung: Zielfall 4-Byte-Stride-Binärdaten **−8,32 %**, feste Record-Breiten −0,19 %, Text +0,2…+0,5 %
+2. **Order-8- und Order-12-Kontexte** (Nr. 2, Hash + Prüfsumme, je 24 Bit): der zpaq-Kapazitätsmechanismus — der Text-Gewinn wächst mit der Dateigröße (Python: enwik8 40K −0,22 %, 120K −0,51 %); die volle Wirkung zeigt sich erst auf MB-Skala
+3. Nr. 34 (Match-Exclusion) wurde gemessen und verworfen (überall neutral) — bewusst nicht portiert
+4. safe/unsafe: das komplette Modell existiert doppelt (Swift-Arrays vs. rohe Pointer), Auswahl über `--unsafe`, bitidentische Ausgabe durch Tests erzwungen. `--gpu` ist für diese Linie wirkungslos (keine BWT, keine Suffix-Sortierung). Bijektivität: Python-Prototyp mit Roundtrip-Matrix aller Schalterkombinationen validiert, Swift-Selbsttest mit Zielfall-Gewinn-Prüfung gegen *ncmm*
+
+*ncmm*-Ströme (0x03) bleiben unverändert dekodierbar; RAM-Bedarf *ncmme*: ~700 MB Modelltabellen (ausgelegt auf 100-MB-Dateien).
+
+Gemessen auf User-Hardware (2026-07-06, `--unsafe`): enwik8 **24.112.243 B (24,11 %)** in 3:13 — gegenüber *ncmm* V3 (24.753.025 B, 24,75 %) **−2,59 %**, der Order-8/12-Kapazitätsgewinn skaliert mit der Dateigröße. silesia.tar **48.254.174 B (22,77 %)** in 5:31 — schlägt sowohl das alte *nbcmb* (vor dem Filter-Wettbewerb, 51.803.644 B, 24,44 %, **−6,85 %**) als auch `xz -9ef` (48.928.248 B, 23,08 %, **−1,38 %**) auf diesem binärlastigen Korpus. Bestätigung, dass der Alignment-Kontext auf echten strukturierten Binärdaten greift.
+
 **0.52.0**
 
 Neuer Schalter `--gpu` (Katalog Nr. 58): Metal-beschleunigte Suffix-Sortierung auf Apple Silicon via MPSGraph-ArgSort — **die Ausgabe bleibt bitidentisch zum CPU-Pfad**, der Schalter ist reine Geschwindigkeit wie `--unsafe`:
@@ -120,7 +136,7 @@ Neuer Schalter `--gpu` (Katalog Nr. 58): Metal-beschleunigte Suffix-Sortierung a
 3. Unified Memory: die CPU schreibt die Schlüssel direkt in einen `storageModeShared`-Puffer, den die GPU sortiert — keine Transferkopien; der sequenzielle Rang-Scan bleibt auf der CPU
 4. die Verfügbarkeit wird einmalig zur Laufzeit geprüft (Metal-Device + Korrektheit des Int64-ArgSort inkl. Schlüsseln oberhalb von 32 Bit); bei Fehlschlag oder unterhalb von ~1 Mi Nibbles fällt der Code transparent auf die CPU zurück — `--gpu` ändert nie die Ausgabe, die Dekompression sortiert nicht und ist unberührt. Hinweis: der GPU-Pfad braucht ~16 zusätzliche Bytes RAM je Eingabe-Byte für den Schlüsselpuffer je parallelem Block
 
-Gemessen auf enwik8 (nbcm, 1 Thread): **1:06,93 statt 2:13,65 Gesamtzeit — 2,0× schneller**; CPU-Rechenzeit 42,98 s statt 130,96 s (Faktor 3,0), die CPU ist während der GPU-Sortierung teilweise frei (68 % Auslastung) und steht damit parallelen Blöcken zur Verfügung. Der befürchtete MPSGraph-Overhead pro Runde frisst den Gewinn nicht auf.
+Gemessen auf enwik8 (nbcm, 1 Thread): **1:06,93 statt 2:13,65 Gesamtzeit — 2,0× schneller**; CPU-Rechenzeit 42,98 s statt 130,96 s (Faktor 3,0), die CPU ist während der GPU-Sortierung teilweise frei (68 % Auslastung) und steht damit parallelen Blöcken zur Verfügung. Der MPSGraph-Overhead pro Runde frisst den Gewinn nicht auf.
 
 **0.51.0**
 

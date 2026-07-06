@@ -25,6 +25,7 @@ public struct be42 {
     0x04 : Algorithm.BEN_NBCM.rawValue,
     0x05 : Algorithm.BEN_NBCMB.rawValue,
     0x06 : Algorithm.BEN_NBCMBF.rawValue,
+    0x07 : Algorithm.BEN_CME.rawValue,
     0xFF : "reserved",
   ]
   public static let MAGIC : [UInt8] = [0xBE, 0x42]
@@ -45,6 +46,7 @@ public struct be42 {
     case .BEN_NBCM: return 0x04
     case .BEN_NBCMB: return 0x05
     case .BEN_NBCMBF: return 0x06
+    case .BEN_CME: return 0x07
     }
   }
 
@@ -74,6 +76,7 @@ public struct be42 {
     case 0x04: return .BEN_NBCM
     case 0x05: return .BEN_NBCMB
     case 0x06: return .BEN_NBCMBF
+    case 0x07: return .BEN_CME
     default:
       throw be42FormatError.unknownAlgorithm
     }

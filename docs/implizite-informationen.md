@@ -14,7 +14,10 @@ Quellen. Status: ✓ = in ncmm genutzt, (✓) = teilweise, ○ = offen.
 ## A. Verlauf / Kontext (Markov verallgemeinert)
 
 1. ✓ Vorangehende Werte fester Tiefe (Order-1/2/3/4/6)
-2. ○ Noch tiefere Kontexte (Order-8+, nur Hash)
+2. (✓) Noch tiefere Kontexte (Order-8+, nur Hash) — in ncmm GEMESSEN
+    (Schritt 13b): Order-8+12 (Hash, Prüfsumme, je 20 Bit) — Text-Gewinn
+    wächst mit Dateigröße (enwik8 40K −0,22 %, 120K −0,51 %), der
+    zpaq-Kapazitätsmechanismus; auf MB-Skala mehr zu erwarten
 3. (✓)/✗ Position des letzten Auftretens desselben Kontexts (Match-Modell) —
     in ncmm genutzt; als Ergänzung zu nbcm (Match auf dem BWT-Ausgabestrom)
     GEMESSEN und verworfen (Schritt 6, siehe unten)
@@ -36,14 +39,13 @@ Quellen. Status: ✓ = in ncmm genutzt, (✓) = teilweise, ○ = offen.
 ## B. Position (die zweite explizite Information als Kontextquelle)
 
 11. ✓ Parität der Nibble-Position (Hi/Lo im Byte)
-12. ⏸ Position mod 2/4/8/16 (Alignment: Structs, Records, 16/32-Bit-Werte) —
-    ARCHITEKTUR-KONFLIKT (2026-07-04): braucht die Original-Byte-Position,
-    die aber genau das ist, was die BWT beim Sortieren zerstört; der Decoder
-    kennt die Original-Position eines Symbols erst NACH der vollständigen
-    inversen BWT, nicht während des kausalen Dekodierens von `t`. Positions-
-    basierte Kontexte (Nr. 11–18) sind strukturell an die BWT-freie ncmm-
-    Linie gebunden, nicht an nbcm. Zurückgestellt (User-Entscheidung), nicht
-    verworfen — möglich in ncmm oder als grober Zwei-Pass-Header-Wert.
+12. (✓) Position mod 2/4/8/16 (Alignment: Structs, Records, 16/32-Bit-Werte) —
+    in nbcm ARCHITEKTUR-KONFLIKT (BWT zerstört Original-Position, 2026-07-04),
+    aber in ncmm GEMESSEN (Schritt 13a, 2026-07-06): Byte-Position mod 8 als
+    eigenes Kontextmodell bringt auf dem Zielfall (4-Byte-Stride-Binärdaten)
+    −8,32 %, bei fester Record-Breite −0,19 %; Text leicht negativ
+    (+0,2…+0,5 %). Bestätigt die These, dass Positions-Kontexte an die
+    BWT-freie ncmm-Linie gebunden sind — dort funktionieren sie.
 13. ○ Absolute Position grob (Dateianfang = Header, Rest = Daten)
 14. ○ Spalte: Distanz seit letztem Zeilenumbruch
 15. ○ Byte an gleicher Spalte der VORZEILE (Tabellen, festbreite Formate)
@@ -79,10 +81,12 @@ Quellen. Status: ✓ = in ncmm genutzt, (✓) = teilweise, ○ = offen.
 33. ✗ Lokales Alphabet: distinct Werte im letzten Fenster (kleine Paletten →
     schärfere Vorhersage) — GEMESSEN (Schritt 8): dieselbe Redundanz mit `d`
     wie Nr. 32, ebenfalls verschlechtert auf dem Zielfall
-34. ○ Exclusion im CM: vom Match-Modell ausgeschlossene Bits schärfen andere
-    Modelle — bezieht sich laut Formulierung explizit auf ncmm/CM-Linie
-    (geparkt), nicht auf nbcm; mit User zu klären, ob sinngemäße Übertragung
-    auf nbcm gewünscht ist oder das Thema an ncmm gebunden bleibt
+34. ✗ Exclusion im CM: vom Match-Modell ausgeschlossene Bits schärfen andere
+    Modelle — GEMESSEN in ncmm (Schritt 13c) als „gebrochener Match-Kandidat
+    lebt als schwacher Low-Nibble-Prädiktor mit gelernter Verlässlichkeit
+    weiter": überall neutral (+0,0…+0,2 %), das Signal feuert zu selten.
+    Verworfen in dieser Interpretation; andere Deutungen des Katalogtexts
+    (z. B. Subtree-Renormierung) wären eigene, neue Kandidaten.
 
 ## E. Statistik über die Statistik (zweite Ordnung)
 
@@ -128,13 +132,16 @@ entweder andersartige Information oder eine strukturelle Änderung liefern)
     systematisch und bleibt bestehen (keine bloße Kaltstart-Delle), der
     "falsche" Prior kostet dann durchgehend statt nur am Anfang. Siehe
     Messdetails unten.
-52. ○ Blocklängen-Sequenz selbst als Zeitreihe: die Abfolge der d-Werte bei
-    jedem Blockende (Geburtstags-Kollisionsabstände) mit einem eigenen
-    kleinen Markov-Modell (2. Ordnung) modellieren statt nur punktuell als
-    Tabellenindex zu nutzen — umgeht das BWT-Positions-Kausalitätsproblem
-    (Nr. 12/27), weil nur bereits beobachtete d-Werte gebraucht werden,
-    keine Original-Position; könnte periodische Binärstrukturen indirekt
-    sichtbar machen
+52. ✗ Blocklängen-Sequenz selbst als Zeitreihe — GEMESSEN (Schritt 12) und
+    verworfen: die Autokorrelation der L-Sequenz (Kettenlängen bei
+    Blockende) ist auf realistischen periodischen Korpora (Records mit
+    Nutzdaten-Rauschen) praktisch NULL (Lag 1/2/3/16: −0,01…+0,02) — die
+    BWT-Sortierung zerstört die Positionsperiodizität der Quelle so
+    gründlich, dass in der d-Sequenz kein Signal überlebt. Selbst im
+    künstlichen Extremfall (nahezu konstante Daten) taucht Autokorrelation
+    nur dort auf, wo sie mit dem bereits genutzten `runlen`-Kontext
+    (d=1-Fall) zusammenfällt — wieder dieselbe Redundanz-Diagnose wie
+    Schritt 6/7/8. Details unten.
 53. ✓ Prädiktive Vorverarbeitung vor der BWT (Delta/Residuen) + Nibble-
     Planarisierung (User-Vorschlag "Nibble-Planar-Delta-Filter", 2026-07-04)
     — GEMESSEN UND ÜBERNOMMEN (Schritt 10): auf Zielfall (32-Bit-Werte mit
@@ -235,6 +242,8 @@ entweder andersartige Information oder eine strukturelle Änderung liefern)
 | 9 (Nr. 51) | Geburtstagsformel als Prior (statt Uniform-Start) | verworfen (siehe unten) |
 | 10 (Nr. 53/54) | Nibble-Planar-Delta-Filter im Wettbewerb | ÜBERNOMMEN (0.51.0, nbcmbf) |
 | 11 (Nr. 57) | Wörterbuch-Vorverarbeitung vor der BWT | verworfen (siehe unten) |
+| 12 (Nr. 52) | Blocklängen-Sequenz (d-Historie) als Slot-Kontext | verworfen (siehe unten) |
+| 13 (Nr. 59: 12/27, 2, 34) | ncmm-Ausbau: Alignment + Order-8/12 + Match-Exclusion | 12/27 ✓, 2 ✓ (skaliert), 34 neutral (siehe unten); Swift/ncmme: enwik8 24,11 % (−2,59 % vs. ncmm), silesia 22,77 % |
 
 **Schritt 5 im Detail (2026-07-04, ben_nbcm5_proto.py):** EWMA-Paar von `\|err\|`
 (kurzes/langes Zeitfenster) je Ereignisklasse, additiver Floor gegen
@@ -335,6 +344,73 @@ Konsequenz für Nr. 55/56: Rohtransformationen, die das Alphabet ERHALTEN
 (Rückwärtslesen) oder den Coder wechseln (Algorithmen-Wettbewerb), bleiben
 aussichtsreicher als solche, die neue Symbole einführen.
 
+**Schritt 13 im Detail (2026-07-06, ben_cm4_proto.py — ncmm-Linie, Nr. 59):**
+Grundprinzip unangetastet (User-Bestätigung dokumentiert); drei einzeln
+schaltbare Erweiterungen auf cm3s-Basis (Basis bitidentisch zu cm3s
+verifiziert), Bijektivitäts-Matrix aller 8 Schalterkombinationen bestanden,
+jede Messung mit Roundtrip-Assert. (a) **Alignment Nr. 12/27** (Byte-Position
+mod 8 als eigenes Kontextmodell — in ncmm kausal verfügbar, der
+Architektur-Konflikt der nbcm-Linie existiert hier nicht): Zielfall
+struktur+rauschen (4-Byte-Stride) **−8,32 %**, periodische Records −0,19 %,
+Text leicht negativ (enwik8 +0,22 %, heterogen +0,46 %) — wirkt exakt wie
+konstruiert; die kleine Text-Verwässerung ist der Preis ohne
+Wettbewerbsmechanismus (ncmm ist Ein-Strom, kein Block-Wettbewerb).
+(b) **Order-8/12 Nr. 2** (Hash + Prüfsumme, je 20 Bit): Text-Gewinn WÄCHST
+mit der Dateigröße — enwik8 40K: −0,22 %, 120K: −0,51 % — das ist der
+zpaq-Kapazitätsmechanismus (Nr. 59-Diagnose) in Aktion; auf MB-Skala ist
+deutlich mehr zu erwarten, Binärkorpora neutral. (c) **Match-Exclusion
+Nr. 34** (gebrochener Match-Kandidat lebt als schwacher Low-Nibble-Prädiktor
+mit gelernter Verlässlichkeit weiter): überall neutral (+0,0…+0,2 %) — das
+Signal feuert zu selten bzw. trägt keine Information; ehrliches Nullresultat.
+Kombination „alle": vereint Align-Gewinn (struct −8,31 %) und Deep-Gewinn,
+Text-Verwässerung durch Align bleibt (−0,03 % enwik8 40K). Empfehlung:
+Swift-Port mit align+deep an, excl aus; Messung auf vollem enwik8/silesia
+entscheidet, ob ncmm als Zweitlinie (ggf. später im Nr.-55-Wettbewerb)
+antritt.
+
+**Swift-Port ncmme (0x07, 0.53.0) — volle Korpusmessung (User, 2026-07-06,
+`--unsafe`):** enwik8 24.112.243 B (24,11 %) in 3:13, gegenüber ncmm V3
+(24.753.025 B, 24,75 %) **−2,59 %** — der Order-8/12-Kapazitätsgewinn
+bestätigt sich auf voller Dateigröße, größenordnungsmäßig konsistent mit
+dem in Python beobachteten Skalierungstrend (40K → 120K). silesia.tar
+48.254.174 B (22,77 %) in 5:31 — schlägt sowohl das alte nbcmb (vor dem
+Filter-Wettbewerb, 51.803.644 B, 24,44 %, **−6,85 %**) als auch
+`xz -9ef` (48.928.248 B, 23,08 %, **−1,38 %**) auf diesem binärlastigen
+Korpus. Damit erstmals eine reale (nicht nur Python-Zielfall-)Bestätigung,
+dass der Alignment-Kontext auf echten strukturierten Binärdaten greift —
+ncmme ist auf silesia sogar besser als die aktuelle nbcmbf-Produktionslinie
+war, bevor deren Filter-Wettbewerb (Schritt 10) kam. Offen: direkter
+ncmme-vs-nbcmbf-Vergleich auf demselben Korpusstand, und ob sich eine
+Rolle im Nr.-55-Blockwettbewerb lohnt.
+
+**Schritt 12 im Detail (2026-07-06, ben_nbcm12_proto.py):** d-Historie
+(Länge der letzten ein bzw. zwei abgeschlossenen Exclusion-Ketten, grob in
+3–4 Buckets à la Geburtstagserwartung ~5–6) als zusätzliche Dimension der
+is_rep-Kontextslots — bewusst als SLOT-ERWEITERUNG (Variante B, wie die
+erfolgreichen Schritte 1/4), nicht als drittes Mixer-Signal (Variante A,
+wie die gescheiterten Schritte 6/7/8). Getestet auf sieben Korpora
+inklusive eines eigens gebauten Zielfalls (Records fester Breite mit
+Nutzdaten-Rauschen, gedacht für periodische Binärstrukturen). Ergebnis:
+Ordnung 1 überall statistisch neutral (−0,06…+0,35 %, im Rauschen),
+Ordnung 2 überall schlechter (+0,21…+2,05 %) — dieselbe Verdünnung wie
+bei der Schritt-7-Verfeinerung und Schritt 3. Diagnostischer Zusatztest
+(Autokorrelation der L-Sequenz direkt am BWT-Ausgabestrom, nicht nur die
+Kompressionsgröße): auf dem realistischen periodischen Zielfall ist die
+Autokorrelation bei Lag 1/2/3/16 praktisch NULL (−0,01…+0,02) — die BWT
+sortiert nach lexikografischem Kontext, nicht nach Original-Position, und
+zerstört damit die Positionsperiodizität der Quelle vollständig, bevor sie
+in der d-Sequenz sichtbar werden könnte. Im künstlich konstruierten
+Extremfall (nahezu konstante Daten, nur ein Rausch-Nibble pro Record)
+zeigt sich zwar Autokorrelation (Lag 1: 0,54), aber sie beschränkt sich
+auf exakt die Fälle, in denen ohnehin schon lange Läufe vorliegen — also
+denselben Bereich, den der bestehende `runlen`-Kontext (genutzt wenn d=1)
+bereits abdeckt. Damit bestätigt sich zum vierten Mal (nach Schritt 6, 7,
+8) dieselbe Grunddiagnose, diesmal auf einer neuen Ebene: nicht nur MTF-
+Rang und `d` sind bereits die relevante Historie, auch die Sequenz DER
+Kettenlängen selbst enthält (nach der BWT) kein zusätzlich nutzbares
+Signal — die Sortierung ist strukturell blind für Position und damit auch
+für jede Periodizität, die nur über Position sichtbar wäre. Verworfen.
+
 **Schritt 9 im Detail (2026-07-04, ben_nbcm9_proto.py):** Repeat-Bit-Slots
 (d=2..15) mit d/16, Exclusion-Ketten-Slots mit der Hazard-Rate 1/(total−j)
 initialisiert statt uniform 2048; Run-Slots unverändert. Getestet auf
@@ -362,7 +438,6 @@ Verworfen als globale Standardänderung.
 | 56  | Rückwärtskodierung (Wettbewerb mit Reverse-Variante) | unklar, vermutlich klein | sehr klein | Ratio (schnell) |
 | 55  | Wettbewerb ganzer Algorithmen pro Block (nbcm vs. Order-0/1) | mittel, v.a. Canterbury | mittel | Ratio |
 | 58  | GPU-Sortierung (Metal MPSGraph) — 0.52.0 umgesetzt, Messung offen | — (Speed-only) | erledigt | Speed |
-| 52  | Blocklängen-Sequenz als Zeitreihe (Markov 2. Ordnung auf d-Folge) | unklar, neuartig | mittel | Ratio |
 | 45–50 | Zwei-Pass global (Dateityp, optimale Parameter) | mittel | mittel–groß | Ratio |
 | 39  | Statistikbruch-Detektor, Varianten Hysterese oder Kontext-Ebene | unklar, Ratio-Variante verworfen | klein–mittel | Ratio |
 | 15/14 | Spalten-Modell (Tabellen, festbreite Daten) | mittel (nur bei passenden Typen) | mittel | Ratio |

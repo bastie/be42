@@ -39,6 +39,9 @@ extension ben {
       passed = BEN_NBCM.selfTest() && passed
       passed = BEN_NBCMB.selfTest() && passed
       passed = BEN_NBCMBF.selfTest() && passed
+    case .BEN_CME:
+      passed = BEN_CM.selfTest() && passed    // Basislinie (0x03) mitprüfen
+      passed = BEN_CME.selfTest() && passed   // kein BWT in der Pipeline
     }
 
     guard passed else {

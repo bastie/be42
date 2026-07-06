@@ -18,7 +18,7 @@ struct ben : AsyncParsableCommand {
       Copyright © 2026 Sebastian Ritter
       License Apache 2.0 
       """,
-      version: "0.52.0",
+      version: "0.53.0",
       helpNames: .long
     )
   }

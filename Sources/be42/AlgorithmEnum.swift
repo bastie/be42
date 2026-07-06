@@ -13,13 +13,15 @@ public enum Algorithm : RawRepresentable, CustomStringConvertible, CustomDebugSt
   static let _BEN_NBCM = "nibble.bwt.chain.mixing"
   static let _BEN_NBCMB = "nibble.bwt.chain.mixing.blocks"
   static let _BEN_NBCMBF = "nibble.bwt.chain.mixing.blocks.filtered"
+  static let _BEN_CME = "nibble.context.mixing.match.extended"
   static let _all = [
     _BEN_BWT,
     _BEN_MEC,
     _BEN_CM,
     _BEN_NBCM,
     _BEN_NBCMB,
-    _BEN_NBCMBF
+    _BEN_NBCMBF,
+    _BEN_CME
   ]
 
   case BEN_BWT
@@ -28,6 +30,7 @@ public enum Algorithm : RawRepresentable, CustomStringConvertible, CustomDebugSt
   case BEN_NBCM
   case BEN_NBCMB
   case BEN_NBCMBF
+  case BEN_CME
 
   public var description: String {
     return rawValue
@@ -40,6 +43,7 @@ public enum Algorithm : RawRepresentable, CustomStringConvertible, CustomDebugSt
     case .BEN_NBCM: return Algorithm.short(of: Algorithm._BEN_NBCM)
     case .BEN_NBCMB: return Algorithm.short(of: Algorithm._BEN_NBCMB)
     case .BEN_NBCMBF: return Algorithm.short(of: Algorithm._BEN_NBCMBF)
+    case .BEN_CME: return Algorithm.short(of: Algorithm._BEN_CME)
     }
   }
 
@@ -53,6 +57,7 @@ public enum Algorithm : RawRepresentable, CustomStringConvertible, CustomDebugSt
     case Algorithm.short(of: Algorithm._BEN_NBCM): self = .BEN_NBCM
     case Algorithm.short(of: Algorithm._BEN_NBCMB): self = .BEN_NBCMB
     case Algorithm.short(of: Algorithm._BEN_NBCMBF): self = .BEN_NBCMBF
+    case Algorithm.short(of: Algorithm._BEN_CME): self = .BEN_CME
     default: return nil
     }
   }

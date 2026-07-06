@@ -490,6 +490,84 @@ private let edgeCases: [Data] = [
   }
 }
 
+// MARK: - BEN_CME (ncmm erweitert: Alignment + Order-8/12, Nr. 59)
+
+@Suite struct BEN_CMETests {
+
+  /// Zielfall des Alignment-Modells: 32-Bit-Werte, strukturierte High-,
+  /// verrauschte Low-Bytes — deterministisch erzeugt.
+  private func structNoiseCorpus(count: Int = 4000) -> Data {
+    var rng = SeededRandom(state: 0xBE42_0007_57A7_0001)
+    var data = Data()
+    var counter = 1000
+    for _ in 0..<count {
+      counter += Int(rng.nextByte() & 0x03)
+      let noise = Int(rng.nextByte()) << 8 | Int(rng.nextByte())
+      let value = UInt32((counter & 0xFFFF) << 16 | noise)
+      data.append(UInt8(value & 0xFF))
+      data.append(UInt8((value >> 8) & 0xFF))
+      data.append(UInt8((value >> 16) & 0xFF))
+      data.append(UInt8((value >> 24) & 0xFF))
+    }
+    return data
+  }
+
+  @Test func roundtripEdgeCases() throws {
+    // Bewusst kompakte Auswahl: jede Instanz allokiert ~600 MB Tabellen.
+    let cases: [Data] = [
+      Data(),
+      Data([0x00]),
+      Data([0xFF]),
+      Data([0xAB, 0xCD]),
+      Data(0x00...0xFF),
+      Data(repeating: 0xAB, count: 2048),
+      Data(String(repeating: "the quick brown fox ", count: 200).utf8),
+    ]
+    for orig in cases {
+      let compressed = try BEN_CME.compress(orig)
+      let restored   = try BEN_CME.decompress(compressed)
+      #expect(restored == orig, "Roundtrip-Mismatch bei \(orig.count) Bytes")
+    }
+  }
+
+  @Test func roundtripRandom() throws {
+    var rng = SeededRandom(state: 0xBE42_0007_DEAD_BEEF)
+    for round in 0..<3 {
+      let orig = rng.data(count: 2048)
+      #expect(try BEN_CME.decompress(BEN_CME.compress(orig)) == orig,
+              "Mismatch in Zufallsrunde \(round)")
+    }
+  }
+
+  @Test func structNoiseRoundtripAndBeatsNCMM() throws {
+    // Alignment-Zielfall: CME muss ncmm (BEN_CM) deutlich schlagen
+    // (Python-Referenz: −8,3 %) UND bijektiv bleiben.
+    let orig = structNoiseCorpus()
+    let cme = try BEN_CME.compress(orig)
+    #expect(try BEN_CME.decompress(cme) == orig)
+    let cm = try BEN_CM.compress(orig)
+    #expect(cme.count < cm.count,
+            "Zielfall: CME muss ncmm schlagen (\(cme.count) vs \(cm.count))")
+  }
+
+  @Test func unsafeCoderMatchesSafeBitExactly() throws {
+    var orig = structNoiseCorpus(count: 1500)
+    orig.append(Data(String(repeating: "safe und unsafe identisch ", count: 150).utf8))
+    let safe = try BEN_CME.compress(orig, unsafeCoder: false)
+    let fast = try BEN_CME.compress(orig, unsafeCoder: true)
+    #expect(fast == safe, "unsafe-Coder muss bitidentische Ausgabe liefern")
+    // kreuzweise: safe-Strom mit unsafe dekodieren und umgekehrt
+    #expect(try BEN_CME.decompress(safe, unsafeCoder: true) == orig)
+    #expect(try BEN_CME.decompress(fast, unsafeCoder: false) == orig)
+  }
+
+  @Test func rejectsCorruptHeader() {
+    #expect(throws: (any Error).self) {
+      _ = try BEN_CME.decompress(Data([0x00, 0x01]))   // zu kurz
+    }
+  }
+}
+
 // MARK: - SuffixArrayGPU (Nr. 58, Metal) — bitidentisch zur CPU
 
 /// Alle Tests überspringen sich selbst, wenn Metal/Int64-ArgSort fehlt
@@ -649,6 +727,14 @@ private let edgeCases: [Data] = [
     #expect(try format.checkHeader(in: data) == .BEN_NBCMBF)
   }
 
+  @Test func headerRoundtripBEN_CME() throws {
+    var format = be42()
+    format.algorithm = .BEN_CME
+    var data = format.getHeader()
+    data.append(contentsOf: [0x00])
+    #expect(try format.checkHeader(in: data) == .BEN_CME)
+  }
+
   @Test func algorithmRawValues() {
     #expect(Algorithm.BEN_BWT.rawValue == "nbbmr")
     #expect(Algorithm.BEN_MEC.rawValue == "nbmec")
@@ -656,6 +742,8 @@ private let edgeCases: [Data] = [
     #expect(Algorithm.BEN_NBCM.rawValue == "nbcm")
     #expect(Algorithm.BEN_NBCMB.rawValue == "nbcmb")
     #expect(Algorithm.BEN_NBCMBF.rawValue == "nbcmbf")
+    #expect(Algorithm.BEN_CME.rawValue == "ncmme")
+    #expect(Algorithm(rawValue: "ncmme") == .BEN_CME)
     #expect(Algorithm(rawValue: "nbmec") == .BEN_MEC)
     #expect(Algorithm(rawValue: "nbbmr") == .BEN_BWT)
     #expect(Algorithm(rawValue: "ncmm") == .BEN_CM)
