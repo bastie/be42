@@ -79,7 +79,8 @@ private let kNSlots  = 183
 
 private enum NBCMSigmoid {
 
-  static let points: [Int] = [1, 2, 4, 6, 10, 17, 27, 45, 74, 120, 194, 311,
+  /// InlineArray (Swift 6.3): 33 Einträge zur Compile-Zeit fest.
+  static let points: InlineArray<33, Int> = [1, 2, 4, 6, 10, 17, 27, 45, 74, 120, 194, 311,
                               488, 747, 1102, 1546, 2048, 2550, 2994, 3349,
                               3608, 3785, 3902, 3976, 4022, 4051, 4069, 4079,
                               4086, 4090, 4092, 4094, 4095]
@@ -92,9 +93,15 @@ private enum NBCMSigmoid {
     return (points[i] * (128 - w) + points[i + 1] * w + 64) >> 7
   }
 
-  static let squash: [Int16] = (-2047...2047).map { Int16(rawSquash($0)) }
+  /// Pro Index unabhängig berechnet — direkte Closure-Init ist
+  /// ordnungsunabhängig sicher.
+  static let squash: InlineArray<4095, Int16> = InlineArray<4095, Int16> { i in
+    Int16(rawSquash(i - 2047))
+  }
 
-  static let stretch: [Int16] = {
+  /// Aufbau mit fortlaufendem Scan-Zustand — zuerst normales Array
+  /// (unverändertes Verfahren), danach elementweise in InlineArray kopiert.
+  static let stretch: InlineArray<4096, Int16> = {
     var table = [Int16](repeating: 0, count: 4096)
     var j = -2047
     for p in 0..<4096 {
@@ -102,7 +109,7 @@ private enum NBCMSigmoid {
       table[p] = Int16(j)
     }
     table[0] = -2047
-    return table
+    return InlineArray<4096, Int16> { i in table[i] }
   }()
 }
 
@@ -201,20 +208,22 @@ private struct NBCMRangeDecoder {
 
 private struct NBCMModel {
 
-  // Dual-Rate-Statistik je Slot: P(bit==1) in 12 Bit
-  var fast = [Int16](repeating: 2048, count: kNSlots)
-  var slow = [Int16](repeating: 2048, count: kNSlots)
-  // Mixer-Gewichte je Slot (Festkomma 16.16), Startsumme ≈ 1
-  var w = [Int](repeating: 32768, count: 2 * kNSlots)
+  // Dual-Rate-Statistik je Slot: P(bit==1) in 12 Bit. kNSlots=183, zur
+  // Compile-Zeit fest → InlineArray (Swift 6.3, SE-0453).
+  var fast: InlineArray<183, Int16> = InlineArray<183, Int16>(repeating: 2048)
+  var slow: InlineArray<183, Int16> = InlineArray<183, Int16>(repeating: 2048)
+  // Mixer-Gewichte je Slot (Festkomma 16.16), Startsumme ≈ 1. 2*183 = 366.
+  var w: InlineArray<366, Int> = InlineArray<366, Int>(repeating: 32768)
 
-  // nbmec-Zustand (Permutations-Blockstruktur)
-  var mtf: [UInt8] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+  // nbmec-Zustand (Permutations-Blockstruktur). InlineArray, aber KEIN
+  // Sequence/Collection — Konsumstellen iterieren über `.indices`.
+  var mtf: InlineArray<16, UInt8> = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
   var seenMask: UInt16 = 0
   var runLength: Int = 0
 
-  // APM/SSE: Ereignisklasse × 33 Stützstellen (Schritt 4)
-  var apm: [Int16] = {
-    var t = [Int16](repeating: 0, count: kNAPMCtx * 33)
+  // APM/SSE: Ereignisklasse × 33 Stützstellen (Schritt 4). kNAPMCtx=8 → 264.
+  var apm: InlineArray<264, Int16> = {
+    var t = InlineArray<264, Int16>(repeating: 0)
     for c in 0..<kNAPMCtx {
       for i in 0..<33 {
         let d = max(-2047, min(2047, (i - 16) * 128))
@@ -320,12 +329,14 @@ private struct NBCMModel {
 /// Sigmoid-Tabellen als rohe Pointer (Prozesslebensdauer, bewusst nie freigegeben).
 nonisolated(unsafe) private let kSquashPtr: UnsafePointer<Int16> = {
   let p = UnsafeMutablePointer<Int16>.allocate(capacity: 4095)
-  for (i, v) in NBCMSigmoid.squash.enumerated() { p[i] = v }
+  // InlineArray ist kein Sequence/Collection (SE-0453) → .enumerated() geht
+  // nicht, stattdessen per Index kopieren (siehe docs/geschwindigkeit.md Nr. 16).
+  for i in 0..<4095 { p[i] = NBCMSigmoid.squash[i] }
   return UnsafePointer(p)
 }()
 nonisolated(unsafe) private let kStretchPtr: UnsafePointer<Int16> = {
   let p = UnsafeMutablePointer<Int16>.allocate(capacity: 4096)
-  for (i, v) in NBCMSigmoid.stretch.enumerated() { p[i] = v }
+  for i in 0..<4096 { p[i] = NBCMSigmoid.stretch[i] }
   return UnsafePointer(p)
 }()
 
@@ -476,7 +487,9 @@ public enum BEN_NBCM {
     let total = isRepeat ? d : 16 - d
     let off = isRepeat ? kOffRepC : kOffNewC
     var j = 0
-    for c in model.mtf {
+    // InlineArray ist kein Sequence/Collection → über .indices iterieren.
+    for idx in model.mtf.indices {
+      let c = model.mtf[idx]
       let inSeen = (model.seenMask >> c) & 1 == 1
       if inSeen != isRepeat { continue }
       if j == total - 1 {
@@ -515,7 +528,8 @@ public enum BEN_NBCM {
     let off = isRepeat ? kOffRepC : kOffNewC
     var v: UInt8 = 0
     var j = 0
-    for c in model.mtf {
+    for idx in model.mtf.indices {
+      let c = model.mtf[idx]
       let inSeen = (model.seenMask >> c) & 1 == 1
       if inSeen != isRepeat { continue }
       if j == total - 1 {

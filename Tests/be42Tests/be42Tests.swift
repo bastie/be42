@@ -667,18 +667,18 @@ private let edgeCases: [Data] = [
 
   @Test func headerRoundtripBEN_BWT() throws {
     var format = be42()
-    format.algorithm = .BEN_BWT
+    format.algorithm = .BEN_NBBMR
     var data = format.getHeader()
     data.append(contentsOf: [0x00])   // checkHeader verlangt > headerCount
-    #expect(try format.checkHeader(in: data) == .BEN_BWT)
+    #expect(try format.checkHeader(in: data) == .BEN_NBBMR)
   }
 
   @Test func headerRoundtripBEN_MEC() throws {
     var format = be42()
-    format.algorithm = .BEN_MEC
+    format.algorithm = .BEN_NBMEC
     var data = format.getHeader()
     data.append(contentsOf: [0x00])
-    #expect(try format.checkHeader(in: data) == .BEN_MEC)
+    #expect(try format.checkHeader(in: data) == .BEN_NBMEC)
   }
 
   @Test func rejectsUnknownAlgorithm() {
@@ -697,10 +697,10 @@ private let edgeCases: [Data] = [
 
   @Test func headerRoundtripBEN_CM() throws {
     var format = be42()
-    format.algorithm = .BEN_CM
+    format.algorithm = .BEN_NCMM
     var data = format.getHeader()
     data.append(contentsOf: [0x00])
-    #expect(try format.checkHeader(in: data) == .BEN_CM)
+    #expect(try format.checkHeader(in: data) == .BEN_NCMM)
   }
 
   @Test func headerRoundtripBEN_NBCM() throws {
@@ -729,24 +729,24 @@ private let edgeCases: [Data] = [
 
   @Test func headerRoundtripBEN_CME() throws {
     var format = be42()
-    format.algorithm = .BEN_CME
+    format.algorithm = .BEN_NCMME
     var data = format.getHeader()
     data.append(contentsOf: [0x00])
-    #expect(try format.checkHeader(in: data) == .BEN_CME)
+    #expect(try format.checkHeader(in: data) == .BEN_NCMME)
   }
 
   @Test func algorithmRawValues() {
-    #expect(Algorithm.BEN_BWT.rawValue == "nbbmr")
-    #expect(Algorithm.BEN_MEC.rawValue == "nbmec")
-    #expect(Algorithm.BEN_CM.rawValue == "ncmm")
+    #expect(Algorithm.BEN_NBBMR.rawValue == "nbbmr")
+    #expect(Algorithm.BEN_NBMEC.rawValue == "nbmec")
+    #expect(Algorithm.BEN_NCMME.rawValue == "ncmme")
     #expect(Algorithm.BEN_NBCM.rawValue == "nbcm")
     #expect(Algorithm.BEN_NBCMB.rawValue == "nbcmb")
     #expect(Algorithm.BEN_NBCMBF.rawValue == "nbcmbf")
-    #expect(Algorithm.BEN_CME.rawValue == "ncmme")
-    #expect(Algorithm(rawValue: "ncmme") == .BEN_CME)
-    #expect(Algorithm(rawValue: "nbmec") == .BEN_MEC)
-    #expect(Algorithm(rawValue: "nbbmr") == .BEN_BWT)
-    #expect(Algorithm(rawValue: "ncmm") == .BEN_CM)
+    #expect(Algorithm.BEN_NCMME.rawValue == "ncmme")
+    #expect(Algorithm(rawValue: "ncmme") == .BEN_NCMME)
+    #expect(Algorithm(rawValue: "nbmec") == .BEN_NBMEC)
+    #expect(Algorithm(rawValue: "nbbmr") == .BEN_NBBMR)
+    #expect(Algorithm(rawValue: "ncmm") == .BEN_NCMM)
     #expect(Algorithm(rawValue: "nbcm") == .BEN_NBCM)
     #expect(Algorithm(rawValue: "nbcmb") == .BEN_NBCMB)
     #expect(Algorithm(rawValue: "nbcmbf") == .BEN_NBCMBF)

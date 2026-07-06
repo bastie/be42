@@ -22,11 +22,11 @@ extension ben {
       }
       let rawData: Data
       switch algorithm {
-      case .BEN_BWT: rawData = try BEN_BWT.compress(input)
-      case .BEN_MEC: rawData = try BEN_MEC.compress(input)
-      case .BEN_CM:  rawData = try BEN_CM.compress(input)
+      case .BEN_NBBMR: rawData = try BEN_BWT.compress(input)
+      case .BEN_NBMEC: rawData = try BEN_MEC.compress(input)
+      case .BEN_NCMM:  rawData = try BEN_CM.compress(input)
       case .BEN_NBCM: rawData = try BEN_NBCM.compress(input, useGPU: useGPU)
-      case .BEN_CME: rawData = try BEN_CME.compress(input, unsafeCoder: unsafeCoder)
+      case .BEN_NCMME: rawData = try BEN_CME.compress(input, unsafeCoder: unsafeCoder)
       case .BEN_NBCMB, .BEN_NBCMBF:
         // Blockgröße: explizit gesetzt oder automatisch so, dass alle
         // Threads Arbeit bekommen (8...64 MiB) — sonst begrenzt die
@@ -36,7 +36,8 @@ extension ben {
         let bs: Int
         if let blocksize {
           bs = blocksize * 1024 * 1024
-        } else {
+        }
+        else {
           let perThread = (input.count + effectiveThreads - 1) / max(1, effectiveThreads)
           bs = min(64 * 1024 * 1024, max(8 * 1024 * 1024, perThread))
         }
@@ -45,7 +46,8 @@ extension ben {
                           input, blockSize: bs,
                           threads: threads, unsafeCoder: unsafeCoder,
                           useGPU: useGPU)
-        } else {
+        }
+        else {
           rawData = try await BEN_NBCMB.compressParallel(
                           input, blockSize: bs,
                           threads: threads, unsafeCoder: unsafeCoder,
@@ -76,9 +78,9 @@ extension ben {
 
       let decompressed: Data
       switch algorithmInFile {
-      case .BEN_BWT: decompressed = try BEN_BWT.decompress(input)
-      case .BEN_MEC: decompressed = try BEN_MEC.decompress(input)
-      case .BEN_CM:  decompressed = try BEN_CM.decompress(input)
+      case .BEN_NBBMR: decompressed = try BEN_BWT.decompress(input)
+      case .BEN_NBMEC: decompressed = try BEN_MEC.decompress(input)
+      case .BEN_NCMM:  decompressed = try BEN_CM.decompress(input)
       case .BEN_NBCM: decompressed = try BEN_NBCM.decompress(input)
       case .BEN_NBCMB: decompressed = try await BEN_NBCMB.decompressParallel(
                                             input, threads: threads,
@@ -86,7 +88,7 @@ extension ben {
       case .BEN_NBCMBF: decompressed = try await BEN_NBCMBF.decompressParallel(
                                             input, threads: threads,
                                             unsafeCoder: unsafeCoder)
-      case .BEN_CME: decompressed = try BEN_CME.decompress(input,
+      case .BEN_NCMME: decompressed = try BEN_CME.decompress(input,
                                             unsafeCoder: unsafeCoder)
       }
       try decompressed.write(to: output)

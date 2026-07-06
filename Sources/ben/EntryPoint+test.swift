@@ -14,15 +14,15 @@ extension ben {
     var passed = true
 
     switch algorithm {
-    case .BEN_BWT:
+    case .BEN_NBBMR:
       passed = SuffixArrayTest.selfTest() && passed
       passed = NibbleBWT.selfTest() && passed
       passed = BEN_BWT.selfTest() && passed
-    case .BEN_MEC:
+    case .BEN_NBMEC:
       passed = SuffixArrayTest.selfTest() && passed
       passed = NibbleBWT.selfTest() && passed
       passed = BEN_MEC.selfTest() && passed
-    case .BEN_CM:
+    case .BEN_NCMM:
       passed = BEN_CM.selfTest() && passed   // kein BWT in der Pipeline
     case .BEN_NBCM:
       passed = SuffixArrayTest.selfTest() && passed
@@ -39,7 +39,7 @@ extension ben {
       passed = BEN_NBCM.selfTest() && passed
       passed = BEN_NBCMB.selfTest() && passed
       passed = BEN_NBCMBF.selfTest() && passed
-    case .BEN_CME:
+    case .BEN_NCMME:
       passed = BEN_CM.selfTest() && passed    // Basislinie (0x03) mitprüfen
       passed = BEN_CME.selfTest() && passed   // kein BWT in der Pipeline
     }

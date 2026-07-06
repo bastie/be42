@@ -174,19 +174,24 @@ private struct RangeDecoder {
 private struct MECModel {
 
   /// Kandidaten-Rangfolge: zuletzt gesehene Werte zuerst (Move-To-Front).
-  var mtf: [UInt8] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+  /// InlineArray (Swift 6.3, SE-0453): 16 Nibble-Werte, zur Compile-Zeit
+  /// fest — kein Heap-Objekt, kein ARC. Konsumstellen (Encoder/Decoder)
+  /// iterieren über `.indices` statt direkt über das Array (InlineArray
+  /// ist bewusst kein Sequence/Collection, siehe docs/geschwindigkeit.md
+  /// Nr. 16).
+  var mtf: InlineArray<16, UInt8> = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
   /// Bitmaske der im aktuellen Permutations-Block gesehenen Werte.
   var seenMask: UInt16 = 0
   /// Aktuelle Lauflänge (aufeinanderfolgende Wiederholungen bei d==1).
   var runLength: Int = 0
 
   /// "Wiederholt sich der nächste Wert?" je Anzahl gesehener Werte d (2...15).
-  var probRepeat = [UInt16](repeating: kProbInit, count: 17)
+  var probRepeat: InlineArray<17, UInt16> = InlineArray<17, UInt16>(repeating: kProbInit)
   /// Wie probRepeat, aber für d==1 je Lauflänge (0...15) — Läufe nach BWT.
-  var probRun = [UInt16](repeating: kProbInit, count: 16)
-  /// Exclusion-Ketten: Kettenposition j (0...14) × min(d, 4).
-  var probRepChain = [UInt16](repeating: kProbInit, count: 15 * 5)
-  var probNewChain = [UInt16](repeating: kProbInit, count: 15 * 5)
+  var probRun: InlineArray<16, UInt16> = InlineArray<16, UInt16>(repeating: kProbInit)
+  /// Exclusion-Ketten: Kettenposition j (0...14) × min(d, 4). 15*5 = 75.
+  var probRepChain: InlineArray<75, UInt16> = InlineArray<75, UInt16>(repeating: kProbInit)
+  var probNewChain: InlineArray<75, UInt16> = InlineArray<75, UInt16>(repeating: kProbInit)
 
   /// Ketten-Kontext: Position in der Kette, konditioniert auf gebuckelte
   /// Blockgröße (d=0 Streamstart, d=1 nach Lauf, d=2,3 kurze Blöcke, 4+ Rest).
@@ -250,7 +255,10 @@ public enum BEN_MEC {
     //    Bit "ist er es (NICHT)?" — der letzte Kandidat ist implizit.
     let total = isRepeat ? d : 16 - d
     var j = 0
-    for c in model.mtf {
+    // InlineArray ist kein Sequence/Collection → über .indices iterieren
+    // statt direkt über das Array (siehe Deklaration von `mtf` oben).
+    for idx in model.mtf.indices {
+      let c = model.mtf[idx]
       let inSeen = (model.seenMask >> c) & 1 == 1
       if inSeen != isRepeat { continue }
       if j == total - 1 {
@@ -287,7 +295,8 @@ public enum BEN_MEC {
     let total = isRepeat ? d : 16 - d
     var v: UInt8 = 0
     var j = 0
-    for c in model.mtf {
+    for idx in model.mtf.indices {
+      let c = model.mtf[idx]
       let inSeen = (model.seenMask >> c) & 1 == 1
       if inSeen != isRepeat { continue }
       if j == total - 1 {

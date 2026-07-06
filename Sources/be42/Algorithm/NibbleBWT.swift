@@ -75,13 +75,18 @@ public enum NibbleBWT: Sendable {
     if n == 0 { return [] }
     if n == 1 { return transformed }
     
-    var countPerValue = [Int](repeating: 0, count: 16)
+    // InlineArray (Swift 6.3): 16 Nibble-Werte, zur Compile-Zeit fest, nur
+    // per Index angesprochen — kein Heap-Objekt, kein ARC. `rank` bleibt
+    // bewusst ein normales Array: es läuft durch withUnsafeMutableBufferPointer
+    // (InlineArray bietet das noch nicht, siehe docs/geschwindigkeit.md Nr. 16),
+    // der Bounds-Check-Overhead ist dort also ohnehin schon eliminiert.
+    var countPerValue = InlineArray<16, Int>(repeating: 0)
     for nibble in transformed { countPerValue[Int(nibble)] += 1 }
-    
-    var firstOccurrence = [Int](repeating: 0, count: 16)
+
+    var firstOccurrence = InlineArray<16, Int>(repeating: 0)
     var runningSum = 0
     for v in 0 ..< 16 { firstOccurrence[v] = runningSum; runningSum += countPerValue[v] }
-    
+
     var rank = [Int](repeating: 0, count: 16)
     var lf   = [Int32](repeating: 0, count: n)   // Int32: halbe Bandbreite
     var result  = [UInt8](repeating: 0, count: n)

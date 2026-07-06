@@ -19,13 +19,13 @@ public struct be42 {
   ]
   private let availableAlgorithm = [
     0x00 : "unset algorithm",
-    0x01 : Algorithm.BEN_BWT.rawValue,
-    0x02 : Algorithm.BEN_MEC.rawValue,
-    0x03 : Algorithm.BEN_CM.rawValue,
+    0x01 : Algorithm.BEN_NBBMR.rawValue,
+    0x02 : Algorithm.BEN_NBMEC.rawValue,
+    0x03 : Algorithm.BEN_NCMM.rawValue,
     0x04 : Algorithm.BEN_NBCM.rawValue,
     0x05 : Algorithm.BEN_NBCMB.rawValue,
     0x06 : Algorithm.BEN_NBCMBF.rawValue,
-    0x07 : Algorithm.BEN_CME.rawValue,
+    0x07 : Algorithm.BEN_NCMME.rawValue,
     0xFF : "reserved",
   ]
   public static let MAGIC : [UInt8] = [0xBE, 0x42]
@@ -40,13 +40,13 @@ public struct be42 {
   /// Format-Byte des Algorithmus im Container-Header.
   public static func code(of algorithm: Algorithm) -> UInt8 {
     switch algorithm {
-    case .BEN_BWT: return 0x01
-    case .BEN_MEC: return 0x02
-    case .BEN_CM:  return 0x03
+    case .BEN_NBBMR: return 0x01
+    case .BEN_NBMEC: return 0x02
+    case .BEN_NCMM:  return 0x03
     case .BEN_NBCM: return 0x04
     case .BEN_NBCMB: return 0x05
     case .BEN_NBCMBF: return 0x06
-    case .BEN_CME: return 0x07
+    case .BEN_NCMME: return 0x07
     }
   }
 
@@ -70,13 +70,13 @@ public struct be42 {
     }
 
     switch data[3] {
-    case 0x01: return .BEN_BWT
-    case 0x02: return .BEN_MEC
-    case 0x03: return .BEN_CM
+    case 0x01: return .BEN_NBBMR
+    case 0x02: return .BEN_NBMEC
+    case 0x03: return .BEN_NCMM
     case 0x04: return .BEN_NBCM
     case 0x05: return .BEN_NBCMB
     case 0x06: return .BEN_NBCMBF
-    case 0x07: return .BEN_CME
+    case 0x07: return .BEN_NCMME
     default:
       throw be42FormatError.unknownAlgorithm
     }

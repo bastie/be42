@@ -78,8 +78,9 @@ private let kLearnShift = 9
 private let kMatchMin = 5
 /// APM-Adaptionsrate.
 private let kAPMRate = 6
-/// Adaptionsraten je Zählerstand (schnell → langsam).
-private let kRate: [Int] = [2, 2, 3, 3, 4, 4, 4, 5, 5, 5, 6, 6, 6, 6, 7, 7]
+/// Adaptionsraten je Zählerstand (schnell → langsam). InlineArray (Swift 6.3,
+/// SE-0453): 16 Einträge zur Compile-Zeit fest — kein Heap-Objekt, kein ARC.
+private let kRate: InlineArray<16, Int> = [2, 2, 3, 3, 4, 4, 4, 5, 5, 5, 6, 6, 6, 6, 7, 7]
 
 // ─────────────────────────────────────────────────────────────────────────────
 // MARK: – Sigmoid (rein Integer, eingebettete Stützstellen)
@@ -89,7 +90,8 @@ private enum Sigmoid {
 
   /// Stützstellen von 4096/(1+e^(-x/256)) bei x = -2048...2048, Schritt 128.
   /// Eingebettet als Konstanten — identisch zur validierten Referenz.
-  static let points: [Int] = [1, 2, 4, 6, 10, 17, 27, 45, 74, 120, 194, 311,
+  /// InlineArray (Swift 6.3): 33 Einträge zur Compile-Zeit fest.
+  static let points: InlineArray<33, Int> = [1, 2, 4, 6, 10, 17, 27, 45, 74, 120, 194, 311,
                               488, 747, 1102, 1546, 2048, 2550, 2994, 3349,
                               3608, 3785, 3902, 3976, 4022, 4051, 4069, 4079,
                               4086, 4090, 4092, 4094, 4095]
@@ -102,11 +104,20 @@ private enum Sigmoid {
     return (points[i] * (128 - w) + points[i + 1] * w + 64) >> 7
   }
 
-  /// squash-Tabelle: Index d+2047, d ∈ -2047...2047.
-  static let squash: [Int16] = (-2047...2047).map { Int16(rawSquash($0)) }
+  /// squash-Tabelle: Index d+2047, d ∈ -2047...2047. 4095 Einträge, pro
+  /// Index unabhängig berechnet (kein Zustand über Iterationen) — direkte
+  /// InlineArray-Closure-Initialisierung ist deshalb ordnungsunabhängig sicher.
+  static let squash: InlineArray<4095, Int16> = InlineArray<4095, Int16> { i in
+    Int16(rawSquash(i - 2047))
+  }
 
-  /// stretch = Umkehrung, rein Integer abgeleitet.
-  static let stretch: [Int16] = {
+  /// stretch = Umkehrung, rein Integer abgeleitet. Der Aufbau hat einen
+  /// über die Iterationen fortlaufenden Zustand (`j`, monotoner Scan) —
+  /// deshalb bewusst zuerst in ein normales Array gerechnet (unverändertes,
+  /// bewährtes Verfahren) und erst danach elementweise in die InlineArray
+  /// kopiert, statt sich auf eine Aufrufreihenfolge der Closure-Init zu
+  /// verlassen, die die Proposal nicht garantiert.
+  static let stretch: InlineArray<4096, Int16> = {
     var table = [Int16](repeating: 0, count: 4096)
     var j = -2047
     for p in 0..<4096 {
@@ -114,7 +125,7 @@ private enum Sigmoid {
       table[p] = Int16(j)
     }
     table[0] = -2047
-    return table
+    return InlineArray<4096, Int16> { i in table[i] }
   }()
 }
 
@@ -226,10 +237,15 @@ private final class CMModel {
   static let nModels = 9
 
   // Kontexttabellen: Wahrscheinlichkeit P(bit==1) in 12 Bit + Zähler
-  var o0p = [Int16](repeating: 2048, count: 2 * 15)
-  var o0c = [UInt8](repeating: 0, count: 2 * 15)
-  var o1p = [Int16](repeating: 2048, count: 512 * 15)
-  var o1c = [UInt8](repeating: 0, count: 512 * 15)
+  // o0/o1: klein und zur Compile-Zeit fest → InlineArray (Swift 6.3, kein
+  // Heap-Objekt, kein ARC/COW). o2 bleibt bewusst normales Array: 131.072*15
+  // ≈ 2 Mio. Einträge ist außerhalb des von InlineArray intendierten
+  // Größenbereichs (siehe docs/geschwindigkeit.md Nr. 16) — o3 und größer
+  // (2^22 bis 2^25 Einträge) ebenfalls unangetastet.
+  var o0p: InlineArray<30, Int16> = InlineArray<30, Int16>(repeating: 2048)
+  var o0c: InlineArray<30, UInt8> = InlineArray<30, UInt8>(repeating: 0)
+  var o1p: InlineArray<7680, Int16> = InlineArray<7680, Int16>(repeating: 2048)
+  var o1c: InlineArray<7680, UInt8> = InlineArray<7680, UInt8>(repeating: 0)
   var o2p = [Int16](repeating: 2048, count: 131_072 * 15)
   var o2c = [UInt8](repeating: 0, count: 131_072 * 15)
   // Hash-Modelle: Wahrscheinlichkeit + Zähler + Prüfsumme (Kollisionsschutz)
@@ -256,20 +272,31 @@ private final class CMModel {
   var buf = [UInt8]()
   var matchPtr = 0
   var matchLen = 0
-  var mmp = [Int16](repeating: 2048, count: 16)            // P(Bit == erwartet) je Längen-Bucket
-  var mmc = [UInt8](repeating: 0, count: 16)
+  var mmp: InlineArray<16, Int16> = InlineArray<16, Int16>(repeating: 2048) // P(Bit == erwartet) je Längen-Bucket
+  var mmc: InlineArray<16, UInt8> = InlineArray<16, UInt8>(repeating: 0)
 
-  // Mixer: 64 Gewichtssätze (Nibble × Parität × Match aktiv) × nModels
-  var wx = [Int](repeating: 65536 / CMModel.nModels, count: 64 * CMModel.nModels)
+  // Mixer: 64 Gewichtssätze (Nibble × Parität × Match aktiv) × nModels = 576
+  var wx: InlineArray<576, Int> = InlineArray<576, Int>(repeating: 65536 / CMModel.nModels)
 
-  // APM Stufe 1: 256 Byte-Kontexte × 33 Stützstellen
-  var apm: [Int16] = CMModel.apmInit(rows: 256)
-  // APM Stufe 2: 32 Match-Kontexte × 33 Stützstellen
-  var apm2: [Int16] = CMModel.apmInit(rows: 32)
+  // APM Stufe 1: 256 Byte-Kontexte × 33 Stützstellen = 8448
+  var apm: InlineArray<8448, Int16> = CMModel.apmInit8448()
+  // APM Stufe 2: 32 Match-Kontexte × 33 Stützstellen = 1056
+  var apm2: InlineArray<1056, Int16> = CMModel.apmInit1056()
 
-  static func apmInit(rows: Int) -> [Int16] {
-    var t = [Int16](repeating: 0, count: rows * 33)
-    for c in 0..<rows {
+  static func apmInit8448() -> InlineArray<8448, Int16> {
+    var t = InlineArray<8448, Int16>(repeating: 0)
+    for c in 0..<256 {
+      for i in 0..<33 {
+        let d = max(-2047, min(2047, (i - 16) * 128))
+        t[c * 33 + i] = Sigmoid.squash[d + 2047]
+      }
+    }
+    return t
+  }
+
+  static func apmInit1056() -> InlineArray<1056, Int16> {
+    var t = InlineArray<1056, Int16>(repeating: 0)
+    for c in 0..<32 {
       for i in 0..<33 {
         let d = max(-2047, min(2047, (i - 16) * 128))
         t[c * 33 + i] = Sigmoid.squash[d + 2047]
@@ -286,7 +313,7 @@ private final class CMModel {
 
   // Zustand des aktuellen Bits (predict → update)
   var i0 = 0, i1 = 0, i2 = 0, h3 = 0, h4 = 0, h6 = 0, hw = 0, hs = 0
-  var st = [Int](repeating: 0, count: CMModel.nModels)
+  var st: InlineArray<9, Int> = InlineArray<9, Int>(repeating: 0)
   var mmBucket = -1
   var mmExpectedBit = 0
   var mctx = 0
@@ -294,30 +321,52 @@ private final class CMModel {
   var apmJ = 0
   var apm2J = 0
 
+  // Pro-Nibble vorberechnete Hash-Basisanteile (Geschwindigkeit, Katalog
+  // docs/geschwindigkeit.md Nr. 11): hist/isHigh/wordHash/buf.count ändern
+  // sich nur beim pushNibble (einmal je Nibble), nicht pro Bit — predict()
+  // wird aber 4× je Nibble aufgerufen. Reine Faktorisierung: der
+  // hist/hi-abhängige Anteil jedes Hashes wird einmal je Nibble in
+  // beginNibble() berechnet statt 4× in predict(); bitidentisch, da
+  // f3 = baseF3 + node*const usw. exakt dieselbe Summe ergibt wie vorher.
+  var baseF3: UInt32 = 0
+  var baseF4: UInt32 = 0
+  var baseF6: UInt64 = 0
+  var baseFw: UInt32 = 0
+  var baseFs: UInt32 = 0
+
+  /// Vor den 4 Bit-Aufrufen von `predict` je Nibble aufzurufen (siehe
+  /// codeNibble/decodeNibble in compress/decompress).
+  @inline(__always)
+  func beginNibble() {
+    let hi = isHigh
+    baseF3 = UInt32(truncatingIfNeeded: hist & 0xFF_FFFF) &* 0x9E37_79B1
+             &+ UInt32(hi) &* 0xC2B2_AE3D
+    baseF4 = UInt32(truncatingIfNeeded: hist) &* 0x27D4_EB2F
+             &+ UInt32(hi) &* 0x9E37_79B1
+    baseF6 = (hist & 0xFFFF_FFFF_FFFF) &* 0x9E37_79B9_7F4A_7C15
+             &+ UInt64(hi) &* 0x27D4_EB2F
+    baseFw = wordHash &* 0xB529_7A4D
+             &+ UInt32(hi) &* 0x1B56_C4E9
+    let n = buf.count
+    let s2: UInt32 = n >= 2 ? UInt32(buf[n - 2]) : 0
+    let s4: UInt32 = n >= 4 ? UInt32(buf[n - 4]) : 0
+    baseFs = (s2 << 8 | s4) &* 0x9E37_79B1
+             &+ UInt32(hi) &* 0x85EB_CA77
+  }
+
   // ── Vorhersage für das Bit am Baumknoten `node` in Tiefe `depth` ──────────
+  @inline(__always)
   func predict(node: Int, depth: Int) -> Int {
     let hi = isHigh
     i0 = hi * 15 + node - 1
     i1 = (Int(hist & 0xFF) << 1 | hi) * 15 + node - 1
     i2 = (Int(hist & 0xFFFF) << 1 | hi) * 15 + node - 1
-    let f3 = UInt32(truncatingIfNeeded: hist & 0xFF_FFFF) &* 0x9E37_79B1
-             &+ UInt32(node) &* 0x85EB_CA77
-             &+ UInt32(hi) &* 0xC2B2_AE3D
-    let f4 = UInt32(truncatingIfNeeded: hist) &* 0x27D4_EB2F
-             &+ UInt32(node) &* 0x1656_67B1
-             &+ UInt32(hi) &* 0x9E37_79B1
-    let f6 = (hist & 0xFFFF_FFFF_FFFF) &* 0x9E37_79B9_7F4A_7C15
-             &+ UInt64(node) &* 0x1656_67B1
-             &+ UInt64(hi) &* 0x27D4_EB2F
-    let fw = wordHash &* 0xB529_7A4D
-             &+ UInt32(node) &* 0x68E3_1DA4
-             &+ UInt32(hi) &* 0x1B56_C4E9
+    let f3 = baseF3 &+ UInt32(node) &* 0x85EB_CA77
+    let f4 = baseF4 &+ UInt32(node) &* 0x1656_67B1
+    let f6 = baseF6 &+ UInt64(node) &* 0x1656_67B1
+    let fw = baseFw &+ UInt32(node) &* 0x68E3_1DA4
     let n = buf.count
-    let s2: UInt32 = n >= 2 ? UInt32(buf[n - 2]) : 0
-    let s4: UInt32 = n >= 4 ? UInt32(buf[n - 4]) : 0
-    let fs = (s2 << 8 | s4) &* 0x9E37_79B1
-             &+ UInt32(node) &* 0x27D4_EB2F
-             &+ UInt32(hi) &* 0x85EB_CA77
+    let fs = baseFs &+ UInt32(node) &* 0x27D4_EB2F
     h3 = Int(f3 >> (32 - kO3Bits))
     h4 = Int(f4 >> (32 - kO4Bits))
     h6 = Int(f6 >> (64 - kO6Bits))
@@ -399,6 +448,7 @@ private final class CMModel {
   }
 
   // ── Modell-Anpassung nach jedem Bit ────────────────────────────────────────
+  @inline(__always)
   func update(bit: Int) {
     let t12 = bit << 12
 
@@ -452,6 +502,7 @@ private final class CMModel {
   }
 
   // ── Verlauf fortschreiben ─────────────────────────────────────────────────
+  @inline(__always)
   func pushNibble(_ v: Int) {
     hist = (hist << 4) | UInt64(v)
     if isHigh == 1 {
@@ -471,6 +522,7 @@ private final class CMModel {
     }
   }
 
+  @inline(__always)
   private func matchUpdate() {
     let n = buf.count
     if matchLen > 0 {
@@ -528,6 +580,7 @@ public enum BEN_CM {
 
     @inline(__always)
     func codeNibble(_ v: Int) {
+      model.beginNibble()
       var node = 1
       for depth in 0..<4 {
         let p = model.predict(node: node, depth: depth)
@@ -566,6 +619,7 @@ public enum BEN_CM {
     var rc = CMRangeDecoder(data: raw, startPos: 4)
 
     for _ in 0..<(Int(byteCount) * 2) {
+      model.beginNibble()
       var node = 1
       for depth in 0..<4 {
         let p = model.predict(node: node, depth: depth)

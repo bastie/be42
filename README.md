@@ -60,7 +60,7 @@ Daten unter https://github.com/bastie/compression-corpus
 | ben        |    0.51 | -T 1       |    22.592.385  | 22.59 |  3:48.78 | nbcmbf             |
 | ben        |    0.51 | -T 8       |    25.043.401  | 25.04 |  0:47.46 | nbcmbf             |
 | ben        |    0.52 | -T 1 --gpu |   *22.592.372* | 22.59 |  1:06.93 | nbcm, GPU, bitidentisch zur CPU |
-| ben        |    0.53 | --unsafe   |    24.112.243  | 24.11 |  3:13.36 | ncmme, schlägt xz, hinter nbcm (Text ist nicht das Zielfeld von ncmme) |
+| ben        |    0.53 | --unsafe   |    24.112.243  | 24.11 |  3:04.20 | ncmme, schlägt xz, hinter nbcm (Text ist nicht das Zielfeld von ncmme) |
 | brotli     |   1.2.0 | -Zkf       |    25.742.001  | 25.74 |  2:30.86 |                    |
 | bzip2      |   1.0.8 | -9zkf      |    29.008.758  | 29.01 | *0:04.75*|                    |
 | gzip       |     479 | -9kf       |    36.475.811  | 36.48 |**0:03.52** | schnell          |

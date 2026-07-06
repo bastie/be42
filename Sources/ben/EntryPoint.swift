@@ -75,7 +75,7 @@ struct ben : AsyncParsableCommand {
       print ("{")
       print ("\"name\": \"\(ben.configuration.commandName!)\",")
       print ("\"algorithm\": \"",terminator: "")
-      print (algorithm, terminator: "")
+      print (compressionAlgorithm.description, terminator: "")
       print ("\",")
       print ("\"version\": \"\(ben.configuration.version)\"", terminator: ",\n")
       print ("\"threads\": \"\(threads)\"", terminator: ",\n")
