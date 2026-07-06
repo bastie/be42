@@ -135,15 +135,28 @@ entweder andersartige Information oder eine strukturelle Änderung liefern)
     (Nr. 12/27), weil nur bereits beobachtete d-Werte gebraucht werden,
     keine Original-Position; könnte periodische Binärstrukturen indirekt
     sichtbar machen
-53. ○ Prädiktive Vorverarbeitung vor der BWT (Delta/Residuen): exakt
-    umkehrbare Delta-Transformation für numerische Binärdaten VOR der BWT,
-    macht Permutationsblöcke länger/geburtstags-günstiger statt der BWT ein
-    zusätzliches Signal aufzudrängen — bleibt architektur-kompatibel, weil
-    sie vor der BWT ansetzt
-54. ○ Wettbewerb mehrerer Roh-Transformationen pro Block: mehrere Varianten
-    (Hi/Lo-Nibble-Reihenfolge vertauscht, Strom rückwärts, mit/ohne Delta)
-    probieren, kompakteste behalten, 1 Header-Bit für die Wahl — Zeit ist
-    laut Projektpriorität nachrangig, mehrfaches Komprimieren ist billig
+53. ✓ Prädiktive Vorverarbeitung vor der BWT (Delta/Residuen) + Nibble-
+    Planarisierung (User-Vorschlag "Nibble-Planar-Delta-Filter", 2026-07-04)
+    — GEMESSEN UND ÜBERNOMMEN (Schritt 10): auf Zielfall (32-Bit-Werte mit
+    strukturierten High-/verrauschten Low-Bytes) −33 % (8118→5432 B).
+    WICHTIGE KORREKTUR am ursprünglichen Vorschlag: die vorgeschlagene
+    Heuristik (kleinster Byteabstand zu 0) UND die unbedingte Planarisierung
+    haben auf Text/homogenen/heterogenen Korpora massiv geschadet (bis zu
+    +56 %!), weil sie Delta/Planarisierung auch dort erzwangen, wo die
+    Byteverteilung dagegen spricht. Lösung: pro Block mehrere Varianten
+    (kein Filter / nur Delta / nur Planar / beides, Stride per
+    Entropie-Heuristik vorausgewählt) TATSÄCHLICH komprimieren und die
+    kleinste Ausgabe behalten (Idee Nr. 54, Wettbewerbsprinzip) — garantiert
+    per Konstruktion nie schlechter als ohne Filter (Header-Overhead
+    2 Byte), erkennt den Zielfall UND verbessert nebenbei den Fall
+    reduziertes Alphabet (−6,4 %). Bijektiv getestet. Nächster Schritt:
+    Swift-Portierung.
+54. ✓ Wettbewerb mehrerer Roh-Transformationen pro Block — ÜBERNOMMEN als
+    Auswahlmechanismus innerhalb von Schritt 10 (Nr. 53): rettet die
+    Delta/Planar-Idee vor der eigenen schlechten Heuristik, da die
+    tatsächlich kleinste Ausgabe entscheidet statt einer Vorab-Schätzung.
+    Erkenntnis verallgemeinerbar: weitere Rohtransformationen (rückwärts
+    lesen, Nr. 56) könnten über denselben Mechanismus mitgeprüft werden
 55. ○ Wettbewerb ganzer Algorithmen pro Block: nbcm UND ein einfaches
     Order-0/1-Modell parallel rechnen, kleineres Ergebnis behalten (1
     Header-Bit) — zielt auf heterogene Korpora (Canterbury) ohne
@@ -151,6 +164,60 @@ entweder andersartige Information oder eine strukturelle Änderung liefern)
 56. ○ Rückwärtskodierung: Strom vor der BWT komplett umkehren — kostet
     nichts an Architektur, rein empirisch zu prüfen ob manche Dateiformate
     (Redundanz eher am Ende) davon profitieren
+57. ✗ LZ-Wörterbuch-Vorverarbeitung: häufige Wörter durch ungenutzte
+    Byte-Werte vor der BWT ersetzen (Wörterbuch im Blockheader, bijektiv,
+    kein LZ77-Offset-Einbetten) — GEMESSEN (Schritt 11) und verworfen:
+    verliert auf ALLEN Korpora inklusive Zielfall enwik8 (+3,3 %), und
+    zwar bereits im STROM selbst (ohne Headerkosten: +139…+903 B je nach
+    Wörterbuchgröße 8…128). Auch nibble-schonende Code-Vergabe (Codes mit
+    im Block häufigen Nibbles) rettet nichts (+148 B Bestfall). Diagnose
+    (doppelt): (a) die BWT bündelt jedes Vorkommen eines häufigen Wortes
+    ohnehin in benachbarte Kontexte — das 100. „the " kostet fast nichts,
+    die Substitution kann nicht sparen, was schon nichts kostet; (b) die
+    Code-Bytes stammen zwangsläufig aus UNGENUTZTEN Byte-Werten und
+    blähen das effektive Nibble-Alphabet auf (d steigt, Ketten länger) —
+    die Schritt-8-Erkenntnis („kleines Alphabet = unser Vorteil") in
+    umgekehrter Richtung. WRT-Gewinne aus der bzip2-Literatur beruhen auf
+    Schwächen (Huffman-Overhead je Symbol), die unser adaptiver
+    Exclusion-Coder nicht hat. Wettbewerb (Nr. 54) hat korrekt „roh"
+    gewählt — Pipeline blieb risikofrei.
+58. ✓ GPU-beschleunigte Suffix-Array-Sortierung via MPSGraph-ArgSort —
+    UMGESETZT (0.52.0, --gpu Schalter; Messung auf Apple-Hardware offen,
+    Verwerfen laut User-Vorgabe nicht vorgesehen). Bitidentität PER
+    KONSTRUKTION statt per Stabilitäts-Hoffnung gelöst: (a) Rangvergabe je
+    Doubling-Runde hängt nur von Schlüssel-GLEICHHEIT benachbarter
+    Elemente ab → instabiler ArgSort über gepackte Int64-Paarschlüssel
+    (rank<<32|rank2) liefert identische Rang-Evolution wie die zwei
+    stabilen CPU-Counting-Sorts; (b) einziger stabilitäts-sensitiver Punkt
+    ist der finale Tiebreak identischer Rotationen (periodische Eingaben —
+    der BWT-Index hängt daran!) → finales SA wird IMMER aus den End-Rängen
+    per stabilem CPU-Counting-Sort normalisiert (Ordnung Rang, dann Index
+    = exakte CPU-Semantik); (c) Int64-Unterstützung von ArgSort ist
+    undokumentiert → einmalige Laufzeit-Probe (inkl. >32-Bit-Schlüssel),
+    bei Fehlschlag transparenter CPU-Fallback — --gpu ändert nie die
+    Ausgabe. Unified Memory: Schlüssel direkt in storageModeShared-Puffer
+    (kein Transfer); Rang-Scan bleibt CPU (sequenziell). OFFEN: Messung
+    Graph-Overhead pro Runde (~27 Runden/Block) — falls er dominiert, ist
+    Plan B ein eigener Metal-Compute-Radix-Sort (Count→Scan→Scatter),
+    Design unverändert. RAM-Hinweis: +16 B je Eingabe-Byte für den
+    Schlüsselpuffer pro parallelem Block. GEMESSEN (2026-07-06, enwik8,
+    nbcm, 1 Thread): 1:06,93 statt 2:13,65 Gesamtzeit — 2,0× schneller;
+    CPU-Rechenzeit 42,98 s statt 130,96 s (Faktor 3,0), CPU während der
+    GPU-Sortierung nur 68 % ausgelastet (Rest steht parallelen Blöcken zur
+    Verfügung). Der Graph-Overhead pro Runde frisst den Gewinn NICHT auf —
+    Plan B (eigener Metal-Radix-Sort) vorerst unnötig.
+59. ⏸ Theoretische Obergrenze: zpaq liegt auf enwik8 bei ~19,6 % (vs. unser
+    22,6 %), Grund nicht ein einzelner Trick sondern KAPAZITÄT — hunderte MB
+    parallel laufender Kontextmodelle (Order-1..8+, Wort, Sparse, Match) mit
+    Bit-History statt unserer 183 Slots. Der BWT erledigt schon Kontextbündelung
+    für uns und quantisiert den Kontext in Permutations-/Rang-Struktur
+    (d, MTF-Rang, Lauflänge). Schritte 5-9 bestätigen empirisch: diese Struktur
+    enthält bereits fast alles, was sie KANN enthalten. An zpaq heranzukommen
+    hieße, zusätzliche Modellkapazität NEBEN der BWT aufzubauen — kein einzelner
+    Trick, kein Block-Algorithmus-Wettbewerb (Nr. 55) können das kompensieren
+    ohne grundlegende Architektur (Zwei-Linie: nbcm vs. ncmm) zu ändern. Zur
+    Kenntnis für Roadmap-Realismus genommen, nicht verworfen (könnte ncmm-
+    Ausbau motivieren, aber ist außerhalb des nbcm-Kerns).
 
 ## Messergebnisse der nbcm-Schritte (enwik8, kumulativ)
 
@@ -166,6 +233,8 @@ entweder andersartige Information oder eine strukturelle Änderung liefern)
 | 7 (Nr. 10) | Recency-Vektor (Alter je Kandidat, log2-Bucket) | zurückgestellt (siehe unten) |
 | 8 (Nr. 32/33) | Alphabetreduktion + Lokales Alphabet | verworfen (siehe unten) |
 | 9 (Nr. 51) | Geburtstagsformel als Prior (statt Uniform-Start) | verworfen (siehe unten) |
+| 10 (Nr. 53/54) | Nibble-Planar-Delta-Filter im Wettbewerb | ÜBERNOMMEN (0.51.0, nbcmbf) |
+| 11 (Nr. 57) | Wörterbuch-Vorverarbeitung vor der BWT | verworfen (siehe unten) |
 
 **Schritt 5 im Detail (2026-07-04, ben_nbcm5_proto.py):** EWMA-Paar von `\|err\|`
 (kurzes/langes Zeitfenster) je Ereignisklasse, additiver Floor gegen
@@ -244,6 +313,28 @@ Redundanz-Diagnose wie bei Match-Ensemble (Schritt 6) und Recency (Schritt 7),
 diesmal bezogen auf `d` statt auf die BWT-Sortierung bzw. den MTF-Rang.
 Verworfen.
 
+**Schritt 11 im Detail (2026-07-06, ben_nbcm11_proto.py):** Wörterbuch-
+Transform als fünfte Wettbewerbs-Variante: Kandidaten = Buchstabenfolgen
+(2–32) plus Varianten mit führendem Leerzeichen, Score = Vorkommen×(Länge−1)
+− Headerkosten, Codes = im Block ungenutzte Byte-Werte (dadurch bijektiv
+ohne Escape: Ein-Pass-Expansion ist exakt invers). Gemessen auf enwik8[:150K]
+(echter Zielfall), corpus.bin, heterogen, binär, reduziertem Alphabet,
+struct+rauschen. Ergebnis: Wettbewerb wählt ÜBERALL „roh" bzw. die
+bestehenden Delta/Planar-Sieger; die Dict-Variante verliert selbst auf
+enwik8 mit +3,3 % gesamt und +139…+903 B allein im Strom (Kaskade über
+Wörterbuchgrößen 8/16/32/64/128 — Minimum bei 16–32, aber nie unter
+Baseline). Nibble-schonende Code-Vergabe (freie Bytes mit häufigen
+High/Low-Nibbles zuerst) bestätigt die Diagnose: bestenfalls +148 B.
+Kernerkenntnis: BWT+Exclusion besetzen die Wortredundanz bereits
+(Wiederholungskosten ~0 nach Kontextsortierung), und jede Substitution
+durch ungenutzte Werte VERGRÖSSERT das Nibble-Alphabet — genau die Größe,
+von deren Kleinheit der Geburtstags-Mechanismus lebt. Dieselbe
+Redundanz-Diagnose wie Schritt 6 (Match auf BWT) und Schritt 8 (Alphabet-
+signale), diesmal auf der Transformations- statt der Signalebene.
+Konsequenz für Nr. 55/56: Rohtransformationen, die das Alphabet ERHALTEN
+(Rückwärtslesen) oder den Coder wechseln (Algorithmen-Wettbewerb), bleiben
+aussichtsreicher als solche, die neue Symbole einführen.
+
 **Schritt 9 im Detail (2026-07-04, ben_nbcm9_proto.py):** Repeat-Bit-Slots
 (d=2..15) mit d/16, Exclusion-Ketten-Slots mit der Hazard-Rate 1/(total−j)
 initialisiert statt uniform 2048; Run-Slots unverändert. Getestet auf
@@ -264,22 +355,20 @@ bleibt über die GANZE Datei bestehen, nicht nur am Anfang — der falsche
 Prior kostet dann durchgehend statt nur transient beim Einschwingen.
 Verworfen als globale Standardänderung.
 
-## Offene Kandidaten (erwarteter Gewinn auf enwik8)
+## Offene Kandidaten (erwarteter Gewinn auf enwik8, geordnet nach Priorität/Realismus)
 
-| Nr. | Maßnahme | erwartet | Aufwand |
-| --- | -------- | -------- | ------- |
-| 47  | Block-Modus (Pflicht für enwik9, Basis für Parallelität) | — | mittel |
-| 35  | zweite APM-Stufe (d-Kontext) | klein | klein |
-| 15/14 | Spalten-Modell | mittel (Tabellen/Binär) | mittel |
-| 45–50 | Zwei-Pass global | mittel | mittel |
-| 39  | Statistikbruch-Detektor, Variante Hysterese (statt Ratio) | unklar, Ratio-Variante verworfen | klein |
-| 39  | Statistikbruch-Detektor, Variante Kontext- statt Ereignisklassen-Ebene | unklar, Ratio-Variante verworfen | mittel |
-| 46/47 | Dateityp-Segmentierung | unklar, hohes Risiko | groß |
-| 52  | Blocklängen-Sequenz als Zeitreihe (Markov 2. Ordnung) | unklar, neuartig | mittel |
-| 53  | Prädiktive Vorverarbeitung vor BWT (Delta/Residuen) | mittel, v.a. numerische Binärdaten | mittel |
-| 54  | Wettbewerb mehrerer Roh-Transformationen pro Block | unklar | mittel |
-| 55  | Wettbewerb ganzer Algorithmen pro Block | mittel, v.a. Canterbury | mittel |
-| 56  | Rückwärtskodierung | unklar, vermutlich klein | sehr klein |
+| Nr. | Maßnahme | erwartet | Aufwand | Kategorie |
+| --- | -------- | -------- | ------- | --------- |
+| 56  | Rückwärtskodierung (Wettbewerb mit Reverse-Variante) | unklar, vermutlich klein | sehr klein | Ratio (schnell) |
+| 55  | Wettbewerb ganzer Algorithmen pro Block (nbcm vs. Order-0/1) | mittel, v.a. Canterbury | mittel | Ratio |
+| 58  | GPU-Sortierung (Metal MPSGraph) — 0.52.0 umgesetzt, Messung offen | — (Speed-only) | erledigt | Speed |
+| 52  | Blocklängen-Sequenz als Zeitreihe (Markov 2. Ordnung auf d-Folge) | unklar, neuartig | mittel | Ratio |
+| 45–50 | Zwei-Pass global (Dateityp, optimale Parameter) | mittel | mittel–groß | Ratio |
+| 39  | Statistikbruch-Detektor, Varianten Hysterese oder Kontext-Ebene | unklar, Ratio-Variante verworfen | klein–mittel | Ratio |
+| 15/14 | Spalten-Modell (Tabellen, festbreite Daten) | mittel (nur bei passenden Typen) | mittel | Ratio |
+| 35  | zweite APM-Stufe (d-Kontext) | klein | klein | Ratio |
+| 46/47 | Dateityp-Segmentierung (hohes Risiko) | unklar | groß | Ratio |
+| 59  | ncmm-Ausbau (weitere Kontextmodelle, Zwei-Linie-Integration) | unbegrenzt, aber außerhalb nbcm-Kern | sehr groß | Strategic |
 
 ## Zurückgestellt (nicht verworfen, aber momentan nicht verfolgt)
 
@@ -287,3 +376,4 @@ Verworfen als globale Standardänderung.
 | --- | -------- | ----- |
 | 10  | Recency-Vektor | Gewinn real (0,006–0,2 %), aber unter bisheriger Schwelle |
 | 12/27 | Alignment-/Wortbreiten-Kontext | Architektur-Konflikt: braucht Original-Position, die BWT zerstört; nur in ncmm oder als Zwei-Pass-Header-Wert sinnvoll |
+| 59  | zpaq-Kapazität zum Vergleich | kein einzelner Bug-Fix, sondern Modellgrößen-Unterschied (100er MB vs. 183 Slots); außerhalb nbcm-Kern, würde ncmm-Ausbau rechtfertigen |

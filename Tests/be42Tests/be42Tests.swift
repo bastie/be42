@@ -272,6 +272,295 @@ private let edgeCases: [Data] = [
   }
 }
 
+// MARK: - NibblePlanarDeltaFilter (Primitive)
+
+@Suite struct NibblePlanarDeltaFilterTests {
+
+  @Test func deltaRoundtripAllStrides() {
+    var rng = SeededRandom(state: 0xBE42_F117_E200_0001)
+    let orig = [UInt8]((0..<5000).map { _ in rng.nextByte() })
+    for stride in NibblePlanarDeltaFilter.validStrides {
+      for unsafeVariant in [false, true] {
+        var work = orig
+        NibblePlanarDeltaFilter.deltaEncode(&work, stride: stride,
+                                            unsafeVariant: unsafeVariant)
+        #expect(work != orig, "Delta (s=\(stride)) muss Daten verändern")
+        NibblePlanarDeltaFilter.deltaDecode(&work, stride: stride,
+                                            unsafeVariant: unsafeVariant)
+        #expect(work == orig, "Delta-Roundtrip (s=\(stride), unsafe=\(unsafeVariant))")
+      }
+    }
+  }
+
+  @Test func deltaSafeUnsafeIdentical() {
+    var rng = SeededRandom(state: 0xBE42_F117_E200_0002)
+    let orig = [UInt8]((0..<3000).map { _ in rng.nextByte() })
+    for stride in NibblePlanarDeltaFilter.validStrides {
+      var safe = orig
+      var fast = orig
+      NibblePlanarDeltaFilter.deltaEncode(&safe, stride: stride, unsafeVariant: false)
+      NibblePlanarDeltaFilter.deltaEncode(&fast, stride: stride, unsafeVariant: true)
+      #expect(safe == fast, "safe/unsafe Delta identisch (s=\(stride))")
+    }
+  }
+
+  @Test func planarizeRoundtrip() {
+    var rng = SeededRandom(state: 0xBE42_F117_E200_0003)
+    for count in [0, 2, 4, 6, 1000, 4096] {
+      let nibs = [UInt8]((0..<count).map { _ in rng.nextByte() & 0x0F })
+      for unsafeVariant in [false, true] {
+        let planar = NibblePlanarDeltaFilter.planarize(nibs, unsafeVariant: unsafeVariant)
+        let back   = NibblePlanarDeltaFilter.deplanarize(planar, unsafeVariant: unsafeVariant)
+        #expect(back == nibs, "Planarisierung-Roundtrip (n=\(count), unsafe=\(unsafeVariant))")
+      }
+    }
+  }
+
+  @Test func planarizeSeparatesHighAndLow() {
+    // [h0,l0,h1,l1] → [h0,h1,l0,l1]
+    let nibs: [UInt8] = [0x1, 0xA, 0x2, 0xB, 0x3, 0xC]
+    let planar = NibblePlanarDeltaFilter.planarize(nibs)
+    #expect(planar == [0x1, 0x2, 0x3, 0xA, 0xB, 0xC])
+  }
+
+  @Test func infoByteRoundtrip() {
+    for stride in [0] + NibblePlanarDeltaFilter.validStrides {
+      for planar in [false, true] {
+        let b = NibblePlanarDeltaFilter.makeInfoByte(stride: stride, planar: planar)
+        let parsed = NibblePlanarDeltaFilter.parseInfoByte(b)
+        #expect(parsed?.stride == stride)
+        #expect(parsed?.planar == planar)
+      }
+    }
+  }
+
+  @Test func infoByteRejectsInvalid() {
+    #expect(NibblePlanarDeltaFilter.parseInfoByte(0x03) == nil)  // Stride 3
+    #expect(NibblePlanarDeltaFilter.parseInfoByte(0x05) == nil)  // Stride 5
+    #expect(NibblePlanarDeltaFilter.parseInfoByte(0x40) == nil)  // unbekanntes Flag
+    #expect(NibblePlanarDeltaFilter.parseInfoByte(0x7F) == nil)  // beides
+  }
+
+  @Test func chooseStrideFindsStructuredStride() {
+    // 32-Bit-Werte, High-Bytes langsam wachsend, Low-Bytes Rauschen → Stride 4
+    var rng = SeededRandom(state: 0xBE42_F117_E200_0004)
+    var data = [UInt8]()
+    var counter = 1000
+    for _ in 0..<2000 {
+      counter += Int(rng.nextByte() & 0x03)
+      let noise = Int(rng.nextByte()) << 8 | Int(rng.nextByte())
+      let value = UInt32((counter & 0xFFFF) << 16 | noise)
+      data.append(UInt8(value & 0xFF))
+      data.append(UInt8((value >> 8) & 0xFF))
+      data.append(UInt8((value >> 16) & 0xFF))
+      data.append(UInt8((value >> 24) & 0xFF))
+    }
+    #expect(NibblePlanarDeltaFilter.chooseStride(data) == 4)
+    // Text hat keine numerische Struktur → kein Delta
+    let text = [UInt8](String(repeating: "the quick brown fox ", count: 200).utf8)
+    #expect(NibblePlanarDeltaFilter.chooseStride(text) == 0)
+    // safe/unsafe identische Wahl
+    #expect(NibblePlanarDeltaFilter.chooseStride(data, unsafeVariant: true) == 4)
+  }
+}
+
+// MARK: - BEN_NBCMBF (Block-Modus mit Filter-Wettbewerb)
+
+@Suite struct BEN_NBCMBFTests {
+
+  /// Zielfall des Filters: 32-Bit-Werte, strukturierte High-, verrauschte
+  /// Low-Bytes — deterministisch erzeugt.
+  private func structNoiseCorpus(count: Int = 4000) -> Data {
+    var rng = SeededRandom(state: 0xBE42_0006_57A7_0001)
+    var data = Data()
+    var counter = 1000
+    for _ in 0..<count {
+      counter += Int(rng.nextByte() & 0x03)
+      let noise = Int(rng.nextByte()) << 8 | Int(rng.nextByte())
+      let value = UInt32((counter & 0xFFFF) << 16 | noise)
+      data.append(UInt8(value & 0xFF))
+      data.append(UInt8((value >> 8) & 0xFF))
+      data.append(UInt8((value >> 16) & 0xFF))
+      data.append(UInt8((value >> 24) & 0xFF))
+    }
+    return data
+  }
+
+  @Test func roundtripEdgeCases() throws {
+    for orig in edgeCases {
+      let compressed = try BEN_NBCMBF.compress(orig, blockSize: 1024)
+      let restored   = try BEN_NBCMBF.decompress(compressed)
+      #expect(restored == orig, "Roundtrip-Mismatch bei \(orig.count) Bytes")
+    }
+  }
+
+  @Test func roundtripAtBlockBoundaries() throws {
+    for size in [1023, 1024, 1025, 2047, 2048, 2049, 4096] {
+      let orig = Data((0..<size).map { UInt8($0 % 251) })
+      #expect(try BEN_NBCMBF.decompress(BEN_NBCMBF.compress(orig, blockSize: 1024)) == orig,
+              "Mismatch bei Größe \(size)")
+    }
+  }
+
+  @Test func roundtripRandomMultiBlock() throws {
+    var rng = SeededRandom(state: 0xBE42_0006_0000_0001)
+    for round in 0..<10 {
+      let orig = rng.data(count: 8192)
+      #expect(try BEN_NBCMBF.decompress(BEN_NBCMBF.compress(orig, blockSize: 1000)) == orig,
+              "Mismatch in Zufallsrunde \(round)")
+    }
+  }
+
+  @Test func structNoiseRoundtripAndFilterEngages() throws {
+    let orig = structNoiseCorpus()
+    let compressed = try BEN_NBCMBF.compress(orig)   // ein Block (Default-Größe)
+    #expect(try BEN_NBCMBF.decompress(compressed) == orig)
+    // Filter-Byte des ersten Blocks: [4B bs][4B count][4B len] → Offset 12
+    #expect(compressed.count > 12 && compressed[12] != 0x00,
+            "Auf dem Zielfall muss eine Filter-Variante gewinnen")
+  }
+
+  @Test func structNoiseBeatsUnfiltered() throws {
+    let orig = structNoiseCorpus()
+    let filtered   = try BEN_NBCMBF.compress(orig)
+    let unfiltered = try BEN_NBCMB.compress(orig)
+    #expect(filtered.count < unfiltered.count,
+            "Zielfall: Filter muss gewinnen (\(filtered.count) vs \(unfiltered.count))")
+  }
+
+  @Test func neverWorseThanUnfiltered() throws {
+    // Per Konstruktion: höchstens 1 Byte je Block Overhead (Filter-Byte),
+    // da die ungefilterte Variante immer Wettbewerbskandidat ist.
+    for orig in edgeCases {
+      let filtered   = try BEN_NBCMBF.compress(orig, blockSize: 1024)
+      let unfiltered = try BEN_NBCMB.compress(orig, blockSize: 1024)
+      let blockCount = orig.isEmpty ? 0 : (orig.count + 1023) / 1024
+      let msg = "Nie-schlechter verletzt bei \(orig.count) Bytes: "
+        + "\(filtered.count) > \(unfiltered.count) + \(blockCount)"
+      #expect(filtered.count <= unfiltered.count + blockCount, "\(msg)")
+    }
+  }
+
+  @Test func unsafeCoderMatchesSafeBitExactly() async throws {
+    var orig = structNoiseCorpus(count: 2000)
+    orig.append(Data(String(repeating: "gemischter Inhalt ", count: 300).utf8))
+    let safe = try BEN_NBCMBF.compress(orig, blockSize: 8192)
+    let fast = try BEN_NBCMBF.compress(orig, blockSize: 8192, unsafeCoder: true)
+    #expect(fast == safe, "unsafe-Coder muss bitidentische Ausgabe liefern")
+    #expect(try BEN_NBCMBF.decompress(fast) == orig)
+    #expect(try BEN_NBCMBF.decompress(safe, unsafeCoder: true) == orig)
+    let par = try await BEN_NBCMBF.compressParallel(orig, blockSize: 8192,
+                                                    threads: 4, unsafeCoder: true)
+    #expect(par == safe)
+  }
+
+  @Test func parallelMatchesSequentialBitExactly() async throws {
+    var rng = SeededRandom(state: 0xBE42_0006_5EED_0001)
+    var orig = structNoiseCorpus(count: 3000)
+    orig.append(Data(String(repeating: "block parallel bijektiv ", count: 400).utf8))
+    orig.append(rng.data(count: 10_000))
+    let sequential = try BEN_NBCMBF.compress(orig, blockSize: 4096)
+    for threads in [1, 2, 4, 0] {
+      let parallel = try await BEN_NBCMBF.compressParallel(orig, blockSize: 4096,
+                                                           threads: threads)
+      #expect(parallel == sequential,
+              "Parallel (T=\(threads)) muss bitidentisch zur sequenziellen Ausgabe sein")
+      let restored = try await BEN_NBCMBF.decompressParallel(parallel, threads: threads)
+      #expect(restored == orig)
+    }
+  }
+
+  @Test func rejectsCorruptFilterByte() throws {
+    let orig = Data(String(repeating: "korrupt ", count: 100).utf8)
+    var compressed = try BEN_NBCMBF.compress(orig, blockSize: 1 << 20)
+    // Filter-Byte des ersten Blocks (Offset 12) auf ungültigen Wert setzen
+    compressed[12] = 0x7F
+    #expect(throws: (any Error).self) {
+      _ = try BEN_NBCMBF.decompress(compressed)
+    }
+  }
+
+  @Test func rejectsCorruptHeader() {
+    #expect(throws: (any Error).self) {
+      _ = try BEN_NBCMBF.decompress(Data([0x00, 0x01]))
+    }
+    #expect(throws: (any Error).self) {
+      _ = try BEN_NBCMBF.decompress(Data([0, 0, 4, 0,  0, 0, 0, 1]))
+    }
+  }
+}
+
+// MARK: - SuffixArrayGPU (Nr. 58, Metal) — bitidentisch zur CPU
+
+/// Alle Tests überspringen sich selbst, wenn Metal/Int64-ArgSort fehlt
+/// (Linux-CI, ältere Macs) — dort deckt der CPU-Fallback die Semantik ab.
+/// `.serialized`: die Pipeline-Tests tauschen NibbleBWT.gpuBuilder
+/// (Threshold 0), das darf nicht parallel zu anderen Tests geschehen.
+@Suite(.serialized) struct SuffixArrayGPUTests {
+
+  @Test func gpuMatchesCPUOnCriticalCases() {
+    guard SuffixArrayGPU.isAvailable else { return }
+    let gpu = SuffixArrayGPU(gpuThreshold: 0)
+    let cpu = SuffixArrayPrefixDoubling()
+
+    var cases: [[Int]] = [
+      [Int](repeating: 5, count: 2),
+      [Int](repeating: 5, count: 17),
+      [Int](repeating: 5, count: 1000),          // konstant: alle Rotationen gleich
+      (0..<16).map { $0 % 2 == 0 ? 2 : 0 },       // ABAB: periodisch
+      [1, 2, 3, 1, 2, 3],                          // ABCABC
+      [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+      [4, 8, 6, 5, 6, 12, 6, 12, 6, 15],           // 'Hello'
+    ]
+    var rng = SeededRandom(state: 0xBE42_6970_0000_0001)
+    for _ in 0..<8 {
+      cases.append((0..<1500).map { _ in Int(rng.nextByte() & 0xF) })
+    }
+    for (i, text) in cases.enumerated() {
+      #expect(gpu.build(text: text, alphabetSize: 16)
+                == cpu.build(text: text, alphabetSize: 16),
+              "GPU-SA weicht von CPU ab (Fall \(i), n=\(text.count))")
+    }
+  }
+
+  @Test func gpuBelowThresholdDelegatesToCPU() {
+    // Auch OHNE Metal gültig: unterhalb der Schwelle wird immer die CPU
+    // genutzt — Ergebnis muss der reinen CPU entsprechen.
+    let gpu = SuffixArrayGPU()   // Default-Schwelle 1 Mi Nibbles
+    let cpu = SuffixArrayPrefixDoubling()
+    let text = (0..<500).map { $0 % 13 % 16 }
+    #expect(gpu.build(text: text, alphabetSize: 16)
+              == cpu.build(text: text, alphabetSize: 16))
+  }
+
+  @Test func fullPipelineBitIdenticalWithGPU() async throws {
+    guard SuffixArrayGPU.isAvailable else { return }
+    let saved = NibbleBWT.gpuBuilder
+    NibbleBWT.gpuBuilder = SuffixArrayGPU(gpuThreshold: 0)
+    defer { NibbleBWT.gpuBuilder = saved }
+
+    var rng = SeededRandom(state: 0xBE42_6970_0000_0002)
+    var corpora: [Data] = [
+      Data(String(repeating: "bitidentisch auf gpu und cpu ", count: 400).utf8),
+      Data(repeating: 0x42, count: 3000),          // periodisch: Tiebreak-Pfad!
+      rng.data(count: 8000),
+    ]
+    var mixed = corpora[0]; mixed.append(rng.data(count: 5000))
+    corpora.append(mixed)
+
+    for (i, orig) in corpora.enumerated() {
+      let cpuOut = try BEN_NBCMBF.compress(orig, blockSize: 4096)
+      let gpuOut = try BEN_NBCMBF.compress(orig, blockSize: 4096, useGPU: true)
+      #expect(gpuOut == cpuOut, "GPU-Ausgabe nicht bitidentisch (Korpus \(i))")
+      #expect(try BEN_NBCMBF.decompress(gpuOut) == orig)
+
+      let par = try await BEN_NBCMBF.compressParallel(orig, blockSize: 4096,
+                                                      threads: 4, useGPU: true)
+      #expect(par == cpuOut, "GPU parallel nicht bitidentisch (Korpus \(i))")
+    }
+  }
+}
+
 // MARK: - BEN_BWT (Bestandsalgorithmus)
 
 @Suite struct BEN_BWTTests {
@@ -352,17 +641,27 @@ private let edgeCases: [Data] = [
     #expect(try format.checkHeader(in: data) == .BEN_NBCMB)
   }
 
+  @Test func headerRoundtripBEN_NBCMBF() throws {
+    var format = be42()
+    format.algorithm = .BEN_NBCMBF
+    var data = format.getHeader()
+    data.append(contentsOf: [0x00])
+    #expect(try format.checkHeader(in: data) == .BEN_NBCMBF)
+  }
+
   @Test func algorithmRawValues() {
     #expect(Algorithm.BEN_BWT.rawValue == "nbbmr")
     #expect(Algorithm.BEN_MEC.rawValue == "nbmec")
     #expect(Algorithm.BEN_CM.rawValue == "ncmm")
     #expect(Algorithm.BEN_NBCM.rawValue == "nbcm")
     #expect(Algorithm.BEN_NBCMB.rawValue == "nbcmb")
+    #expect(Algorithm.BEN_NBCMBF.rawValue == "nbcmbf")
     #expect(Algorithm(rawValue: "nbmec") == .BEN_MEC)
     #expect(Algorithm(rawValue: "nbbmr") == .BEN_BWT)
     #expect(Algorithm(rawValue: "ncmm") == .BEN_CM)
     #expect(Algorithm(rawValue: "nbcm") == .BEN_NBCM)
     #expect(Algorithm(rawValue: "nbcmb") == .BEN_NBCMB)
+    #expect(Algorithm(rawValue: "nbcmbf") == .BEN_NBCMBF)
     #expect(Algorithm(rawValue: "gibtsnicht") == nil)
   }
 }

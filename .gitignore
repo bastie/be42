@@ -91,4 +91,9 @@ fastlane/test_output
 
 iOSInjectionProject/
 
+
+# test data from https://github.com/bastie/compression-corpus
+compression-corpus/
+enwik*
+
 #EOF

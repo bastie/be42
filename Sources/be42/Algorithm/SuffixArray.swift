@@ -443,6 +443,48 @@ public enum SuffixArrayTest {
     }
     check("Laufzeit-Tests abgeschlossen", true)
     
+    // ── Block 8: GPU (Nr. 58) — Bitidentität SuffixArrayGPU == CPU ──────────
+    print("\n── Block 8: GPU-Builder (Metal, Nr. 58) ──")
+
+    if SuffixArrayGPU.isAvailable {
+      // Threshold 0: GPU-Pfad auch für kleine Testeingaben erzwingen
+      let gpu = SuffixArrayGPU(gpuThreshold: 0)
+
+      func gpuMatchesCPU(_ text: [Int]) -> Bool {
+        gpu.build(text: text, alphabetSize: 16)
+          == fast.build(text: text, alphabetSize: 16)
+      }
+
+      // Periodische Fälle zuerst — hier hängt der BWT-Index am Tiebreak!
+      check("GPU: konstant [5×16] == CPU", gpuMatchesCPU([Int](repeating: 5, count: 16)))
+      check("GPU: konstant [5×1000] == CPU", gpuMatchesCPU([Int](repeating: 5, count: 1000)))
+      check("GPU: ABAB×16 == CPU", gpuMatchesCPU(abab16))
+      check("GPU: ABCABC == CPU", gpuMatchesCPU(abc6))
+      check("GPU: alle 16 Nibbles == CPU", gpuMatchesCPU(allAsc))
+      check("GPU: 'Hello' == CPU", gpuMatchesCPU(hello))
+
+      var gpuRandomOK = true
+      for _ in 0 ..< 5 {
+        let text = (0 ..< 2_000).map { _ in nextNibble() }
+        if !gpuMatchesCPU(text) { gpuRandomOK = false }
+      }
+      check("GPU: 5 × n=2.000 Zufall == CPU", gpuRandomOK)
+
+      let big = (0 ..< 300_000).map { _ in nextNibble() }
+      check("GPU: n=300.000 Zufall == CPU", gpuMatchesCPU(big))
+
+      let t0 = Date()
+      _ = gpu.build(text: big, alphabetSize: 16)
+      let msGPU = Date().timeIntervalSince(t0) * 1000
+      let t1 = Date()
+      _ = fast.build(text: big, alphabetSize: 16)
+      let msCPU = Date().timeIntervalSince(t1) * 1000
+      print(String(format: "  [ ] ℹ  n=300.000: GPU %5.0f ms, CPU %5.0f ms", msGPU, msCPU))
+    } else {
+      print("  [ ] ℹ  Metal/Int64-ArgSort nicht verfügbar — GPU-Tests übersprungen")
+      print("        (CPU-Fallback aktiv, --gpu liefert identische Ausgabe)")
+    }
+
     // ── Zusammenfassung ──────────────────────────────────────────────────────
     print("\n═══════════════════════════════════════════")
     if allPassed {
@@ -452,7 +494,7 @@ public enum SuffixArrayTest {
       print("  Ergebnis: Mindestens ein Test FEHLGESCHLAGEN ✗")
     }
     print("═══════════════════════════════════════════\n")
-    
+
     return allPassed
   }
 }

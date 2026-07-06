@@ -13,13 +13,20 @@ extension ben {
 
     if !decompress { // MARK: Compression
       fileformat.algorithm = algorithm
+      // --gpu betrifft nur die Suffix-Sortierung beim Komprimieren
+      // (Dekompression sortiert nicht). Ausgabe bleibt bitidentisch.
+      let useGPU = gpu && SuffixArrayGPU.isAvailable
+      if gpu && !useGPU {
+        print("Hinweis: --gpu angefordert, aber Metal/Int64-ArgSort nicht "
+              + "verfügbar — nutze CPU (Ausgabe identisch).")
+      }
       let rawData: Data
       switch algorithm {
       case .BEN_BWT: rawData = try BEN_BWT.compress(input)
       case .BEN_MEC: rawData = try BEN_MEC.compress(input)
       case .BEN_CM:  rawData = try BEN_CM.compress(input)
-      case .BEN_NBCM: rawData = try BEN_NBCM.compress(input)
-      case .BEN_NBCMB:
+      case .BEN_NBCM: rawData = try BEN_NBCM.compress(input, useGPU: useGPU)
+      case .BEN_NBCMB, .BEN_NBCMBF:
         // Blockgröße: explizit gesetzt oder automatisch so, dass alle
         // Threads Arbeit bekommen (8...64 MiB) — sonst begrenzt die
         // Blockanzahl die Parallelität (enwik8 mit 64 MiB = nur 2 Blöcke).
@@ -32,9 +39,17 @@ extension ben {
           let perThread = (input.count + effectiveThreads - 1) / max(1, effectiveThreads)
           bs = min(64 * 1024 * 1024, max(8 * 1024 * 1024, perThread))
         }
-        rawData = try await BEN_NBCMB.compressParallel(
-                        input, blockSize: bs,
-                        threads: threads, unsafeCoder: unsafeCoder)
+        if algorithm == .BEN_NBCMBF {
+          rawData = try await BEN_NBCMBF.compressParallel(
+                          input, blockSize: bs,
+                          threads: threads, unsafeCoder: unsafeCoder,
+                          useGPU: useGPU)
+        } else {
+          rawData = try await BEN_NBCMB.compressParallel(
+                          input, blockSize: bs,
+                          threads: threads, unsafeCoder: unsafeCoder,
+                          useGPU: useGPU)
+        }
       }
       let newFileName = "\(file!).ben"
       let output = URL(fileURLWithPath: newFileName)
@@ -65,6 +80,9 @@ extension ben {
       case .BEN_CM:  decompressed = try BEN_CM.decompress(input)
       case .BEN_NBCM: decompressed = try BEN_NBCM.decompress(input)
       case .BEN_NBCMB: decompressed = try await BEN_NBCMB.decompressParallel(
+                                            input, threads: threads,
+                                            unsafeCoder: unsafeCoder)
+      case .BEN_NBCMBF: decompressed = try await BEN_NBCMBF.decompressParallel(
                                             input, threads: threads,
                                             unsafeCoder: unsafeCoder)
       }

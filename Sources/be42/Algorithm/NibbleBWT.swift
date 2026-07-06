@@ -27,19 +27,27 @@ public enum NibbleBWT: Sendable {
   // Austauschbarer Builder — Standard: PrefixDoubling (O(n log n), korrekt)
   // Für Tests: SuffixArrayNaive() einsetzen
   nonisolated(unsafe) static var builder: any SuffixArrayBuilder = SuffixArrayPrefixDoubling()
-  
+
+  /// GPU-Builder (Nr. 58) — bitidentisch zur CPU, fällt bei fehlender
+  /// Verfügbarkeit selbst auf SuffixArrayPrefixDoubling zurück.
+  /// Variabel nur für Tests (Threshold-Override); Produktion nutzt Default.
+  nonisolated(unsafe) static var gpuBuilder: any SuffixArrayBuilder = SuffixArrayGPU()
+
   // MARK: Vorwärts-Transform
-  
-  static func transform(_ nibbles: [UInt8]) -> NibbleBWTResult {
+
+  /// `useGPU`: Suffix-Sortierung über Metal (Nr. 58). Ausgabe bitidentisch
+  /// zur CPU — die Wahl ist reine Beschleunigung, kein Formatunterschied.
+  static func transform(_ nibbles: [UInt8], useGPU: Bool = false) -> NibbleBWTResult {
     let n = nibbles.count
     if n == 0 { return NibbleBWTResult(transformed: [],      index: 0) }
     if n == 1 { return NibbleBWTResult(transformed: nibbles, index: 0) }
-    
+
     assert(nibbles.allSatisfy { $0 <= 0xF },
            "NibbleBWT: Alle Werte müssen im Bereich 0x0...0xF liegen.")
-    
+
     let text = nibbles.map { Int($0) }
-    let sa   = builder.build(text: text, alphabetSize: 16)
+    let sa   = (useGPU ? NibbleBWT.gpuBuilder : builder)
+                 .build(text: text, alphabetSize: 16)
 
     var transformed   = [UInt8](repeating: 0, count: n)
     var originalIndex = 0

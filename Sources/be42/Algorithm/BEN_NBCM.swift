@@ -642,10 +642,22 @@ public enum BEN_NBCM {
     return nibbles
   }
 
-  public static func compress(_ input: Data, unsafeCoder: Bool = false) throws -> Data {
-    var nibbles = nibbles(from: input)
-    let bwtResult = NibbleBWT.transform(nibbles)
-    nibbles = bwtResult.transformed
+  public static func compress(_ input: Data, unsafeCoder: Bool = false,
+                              useGPU: Bool = false) throws -> Data {
+    return try compressNibbles(nibbles(from: input), unsafeCoder: unsafeCoder,
+                               useGPU: useGPU)
+  }
+
+  /// Kern der Kompression auf einem bereits vorbereiteten Nibble-Strom —
+  /// Zugriffspunkt für BEN_NBCMBF, dessen Filter (Delta/Planarisierung)
+  /// VOR der BWT auf dem Nibble-/Byte-Strom arbeiten.
+  /// Payload identisch zu `compress`: [4B nibbleCount][4B bwtIndex][Strom].
+  /// `useGPU` (Nr. 58): Suffix-Sortierung über Metal, Ausgabe bitidentisch.
+  package static func compressNibbles(_ inputNibbles: [UInt8],
+                                      unsafeCoder: Bool = false,
+                                      useGPU: Bool = false) throws -> Data {
+    let bwtResult = NibbleBWT.transform(inputNibbles, useGPU: useGPU)
+    let nibbles = bwtResult.transformed
 
     guard UInt64(nibbles.count) <= UInt64(UInt32.max) else {
       throw BEN_NBCMError.fileTooLarge
@@ -688,25 +700,37 @@ public enum BEN_NBCM {
 
   public static func decompress(_ compressed: Data, unsafeCoder: Bool = false) throws -> Data {
     let raw = Array(compressed)
-    guard raw.count >= 8 else {
-      throw BEN_NBCMError.invalidData("Header zu kurz (\(raw.count) < 8 Bytes)")
+    let originalNibbles = try decompressToNibbles(raw, startPos: 0,
+                                                  unsafeCoder: unsafeCoder)
+    return data(from: originalNibbles, count: UInt32(originalNibbles.count))
+  }
+
+  /// Kern der Dekompression: liest ab `startPos` das Payload
+  /// [4B nibbleCount][4B bwtIndex][Strom] und liefert den Original-
+  /// Nibble-Strom (nach inverser BWT) — Zugriffspunkt für BEN_NBCMBF,
+  /// das anschließend Deplanarisierung/Delta-Umkehr anwendet.
+  package static func decompressToNibbles(_ raw: [UInt8], startPos: Int,
+                                          unsafeCoder: Bool = false) throws -> [UInt8] {
+    guard raw.count >= startPos + 8 else {
+      throw BEN_NBCMError.invalidData(
+        "Header zu kurz (\(raw.count - startPos) < 8 Bytes)")
     }
     func readBE32(_ off: Int) -> UInt32 {
       UInt32(raw[off]) << 24 | UInt32(raw[off + 1]) << 16
         | UInt32(raw[off + 2]) << 8 | UInt32(raw[off + 3])
     }
-    let nibbleCount = readBE32(0)
-    let bwtIndex    = readBE32(4)
+    let nibbleCount = readBE32(startPos)
+    let bwtIndex    = readBE32(startPos + 4)
 
     guard nibbleCount % 2 == 0 else {
       throw BEN_NBCMError.invalidData("Nibble-Anzahl \(nibbleCount) ist ungerade")
     }
-    if nibbleCount == 0 { return Data() }
+    if nibbleCount == 0 { return [] }
     guard bwtIndex < nibbleCount else {
       throw BEN_NBCMError.invalidData("BWT-Index \(bwtIndex) ≥ Nibble-Anzahl \(nibbleCount)")
     }
 
-    var rc = NBCMRangeDecoder(data: raw, startPos: 8)
+    var rc = NBCMRangeDecoder(data: raw, startPos: startPos + 8)
     var nibbles = [UInt8]()
     nibbles.reserveCapacity(min(Int(nibbleCount), 1 << 22))
     if unsafeCoder {
@@ -721,8 +745,7 @@ public enum BEN_NBCM {
       }
     }
 
-    let originalNibbles = NibbleBWT.inverseTransform(nibbles, index: Int(bwtIndex))
-    return data(from: originalNibbles, count: nibbleCount)
+    return NibbleBWT.inverseTransform(nibbles, index: Int(bwtIndex))
   }
 
   private static func data(from nibbles: [UInt8], count: UInt32) -> Data {
@@ -738,8 +761,9 @@ public enum BEN_NBCM {
   // ───────────────────────────────────────────────────────────────────────────
 
   /// Komprimiert einen einzelnen Block (identisches Payload wie compress).
-  static func compressBlock(_ input: Data, unsafeCoder: Bool = false) throws -> Data {
-    return try compress(input, unsafeCoder: unsafeCoder)
+  static func compressBlock(_ input: Data, unsafeCoder: Bool = false,
+                            useGPU: Bool = false) throws -> Data {
+    return try compress(input, unsafeCoder: unsafeCoder, useGPU: useGPU)
   }
 
   /// Dekomprimiert einen einzelnen Block.

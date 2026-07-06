@@ -12,42 +12,46 @@ struct ben : AsyncParsableCommand {
   static var configuration: CommandConfiguration {
     CommandConfiguration(
       commandName: "ben",
-      abstract: "Compression utility based on another way of view called natural nibble structure of any file",
+      abstract: "Kompressionswerkzeug auf Basis einer anderen Sichtweise: der natürlichen Nibble-Struktur jeder Datei",
       discussion:
       """
       Copyright © 2026 Sebastian Ritter
       License Apache 2.0 
       """,
-      version: "0.50.0",
+      version: "0.52.0",
       helpNames: .long
     )
   }
   
-  @Flag(name: [.customLong("selftest")], help: "test algorithm parts")
+  @Flag(name: [.customLong("selftest")], help: "Testet die Algorithmus-Bausteine")
   var selfTest = false
-  
-  @Flag(name: [.customShort("d"), .customLong ("decompress")], help: "Decompress the file.")
+
+  @Flag(name: [.customShort("d"), .customLong ("decompress")], help: "Dekomprimiert die Datei.")
   var decompress = false
-  
-  @Flag(name: [.customLong("v"), .customLong("verbose")], help: "Verbose")
+
+  @Flag(name: [.customLong("v"), .customLong("verbose")], help: "Ausführliche Ausgabe")
   var verbose = false
-  
-  @Option(name: [.customLong("algorithm")], help: "Algorithm")
-  var algorithm : String = Algorithm.BEN_NBCMB.rawValue
+
+  @Option(name: [.customLong("algorithm")], help: "Algorithmus")
+  var algorithm : String = Algorithm.BEN_NBCMBF.rawValue
 
   @Option(name: [.customLong("blocksize")],
-          help: "Block size in MiB for nbcmb (bigger = better ratio, smaller = more parallelism/less RAM). Default: automatic from file size and threads, 8...64 MiB")
+          help: "Blockgröße in MiB für nbcmb/nbcmbf (größer = bessere Ratio, kleiner = mehr Parallelität/weniger RAM). Standard: automatisch aus Dateigröße und Threads, 8...64 MiB")
   var blocksize : Int? = nil
 
   @Option(name: [.customShort("T"), .customLong("threads")],
-          help: "Parallel blocks for nbcmb, 0 = number of CPU cores (mind RAM: ~36 bytes per input byte per parallel block)")
+          help: "Parallele Blöcke für nbcmb/nbcmbf, 0 = Anzahl CPU-Kerne (RAM beachten: ~36 Bytes je Eingabe-Byte je parallelem Block)")
   var threads : Int = 0
 
   @Flag(name: [.customLong("unsafe")],
-        help: "Use pointer-based hot loops without bounds checks (same output, faster; you accept the safety trade-off)")
+        help: "Pointerbasierte Hot Loops ohne Bounds-Checks (gleiche Ausgabe, schneller; Sicherheits-Kompromiss wird akzeptiert)")
   var unsafeCoder = false
-  
-  @Argument(help: "input file")
+
+  @Flag(name: [.customLong("gpu")],
+        help: "Metal-beschleunigte Suffix-Sortierung auf Apple Silicon (gleiche Ausgabe, bitidentisch zur CPU; fällt automatisch auf CPU zurück wenn nicht verfügbar)")
+  var gpu = false
+
+  @Argument(help: "Eingabedatei")
   var file: String?
   
   func run() async throws {
